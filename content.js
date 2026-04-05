@@ -32,7 +32,38 @@
     trash: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`,
     check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
     close: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
+    send:  `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22 11 13 2 9l20-7z"/></svg>`,
   };
+
+  const _nameColors = {
+    Amber:"#f59e0b",Azure:"#3b82f6",Coral:"#f97316",Cyan:"#06b6d4",
+    Ember:"#ef4444",Jade:"#10b981",Lime:"#84cc16",Mint:"#34d399",
+    Navy:"#1e40af",Onyx:"#71717a",Pearl:"#e2e8f0",Rose:"#f43f5e",
+    Ruby:"#dc2626",Sage:"#94a3b8",Slate:"#64748b",Teal:"#14b8a6",
+    Violet:"#8b5cf6",Zinc:"#a1a1aa",
+  };
+
+  function getComments(record) {
+    if (Array.isArray(record.comments) && record.comments.length > 0) return record.comments;
+    if (record.note) return [{ text: record.note, author: record._authorName || "You", createdAt: record.createdAt }];
+    return [];
+  }
+
+  function relativeTime(dateStr) {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
+    return new Date(dateStr).toLocaleDateString();
+  }
+
+  function authorAvatar(name) {
+    const parts = (name || "Anonymous").split(" ");
+    const color = _nameColors[parts[0]] || "#71717a";
+    const initial = (parts[1] || parts[0] || "?").charAt(0);
+    return `<span class="cs-comment-avatar" style="background:${color}">${initial}</span>`;
+  }
 
   /** Strip tracking params, trailing slashes, and fragments for consistent URL matching */
   function normalizeUrl(url) {
@@ -241,73 +272,112 @@
      TEXT-BASED FALLBACK FINDER
      When XPath fails (SPA re-renders, DOM shifts),
      find the highlight text directly in the DOM.
+     Uses prefix/suffix context to disambiguate when
+     the same text appears multiple times on a page.
      ════════════════════════════════════════════ */
-  function findTextInDOM(searchText) {
+  function findTextInDOM(searchText, prefix, suffix) {
     if (!searchText || searchText.length < 2) return null;
 
-    // ── Strategy 1: exact match in a single text node ──
-    const walker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          if (node.parentElement && node.parentElement.closest(".cs-tooltip, .cs-action-bar")) {
-            return NodeFilter.FILTER_REJECT;
+    const bodyText = document.body.innerText;
+
+    // Collect ALL candidate positions in innerText (exact + normalized)
+    const candidates = [];
+
+    // Exact matches
+    let idx = 0;
+    while ((idx = bodyText.indexOf(searchText, idx)) !== -1) {
+      candidates.push({ pos: idx, len: searchText.length, score: 0 });
+      idx += 1;
+    }
+
+    // Normalized whitespace matches
+    const normalSearch = searchText.replace(/\s+/g, " ").trim();
+    const normalBody = bodyText.replace(/\s+/g, " ");
+    let nIdx = 0;
+    while ((nIdx = normalBody.indexOf(normalSearch, nIdx)) !== -1) {
+      const origPos = mapNormToOrig(bodyText, nIdx);
+      const origEnd = mapNormToOrig(bodyText, nIdx + normalSearch.length);
+      const already = candidates.some(c => Math.abs(c.pos - origPos) < 5);
+      if (!already) {
+        candidates.push({ pos: origPos, len: origEnd - origPos, score: -1 });
+      }
+      nIdx += 1;
+    }
+
+    if (candidates.length === 0) {
+      // Last resort: single text-node walker
+      const range = findSingleTextNode(searchText);
+      if (range) return range;
+      return null;
+    }
+
+    // Score candidates by prefix/suffix context match
+    if ((prefix || suffix) && candidates.length > 1) {
+      for (const c of candidates) {
+        if (prefix) {
+          const before = bodyText.slice(Math.max(0, c.pos - prefix.length - 10), c.pos);
+          if (before.includes(prefix)) c.score += 2;
+          else {
+            const normBefore = before.replace(/\s+/g, " ");
+            const normPrefix = prefix.replace(/\s+/g, " ");
+            if (normBefore.includes(normPrefix)) c.score += 1;
           }
+        }
+        if (suffix) {
+          const after = bodyText.slice(c.pos + c.len, c.pos + c.len + suffix.length + 10);
+          if (after.includes(suffix)) c.score += 2;
+          else {
+            const normAfter = after.replace(/\s+/g, " ");
+            const normSuffix = suffix.replace(/\s+/g, " ");
+            if (normAfter.includes(normSuffix)) c.score += 1;
+          }
+        }
+      }
+      candidates.sort((a, b) => b.score - a.score);
+    }
+
+    const best = candidates[0];
+    const range = resolveInnerTextRange(best.pos, best.len);
+    if (range) return range;
+
+    // Fallback to single text-node walker
+    return findSingleTextNode(searchText);
+  }
+
+  function mapNormToOrig(bodyText, normPos) {
+    let orig = 0, ni = 0;
+    for (; orig < bodyText.length && ni < normPos; orig++) {
+      if (/\s/.test(bodyText[orig])) {
+        if (orig === 0 || !/\s/.test(bodyText[orig - 1])) ni++;
+      } else {
+        ni++;
+      }
+    }
+    return orig;
+  }
+
+  function findSingleTextNode(searchText) {
+    const walker = document.createTreeWalker(
+      document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          if (node.parentElement && node.parentElement.closest(".cs-tooltip, .cs-action-bar"))
+            return NodeFilter.FILTER_REJECT;
           return node.textContent.includes(searchText)
             ? NodeFilter.FILTER_ACCEPT
             : NodeFilter.FILTER_SKIP;
         }
       }
     );
-
     const textNode = walker.nextNode();
     if (textNode) {
-      const startOffset = textNode.textContent.indexOf(searchText);
-      if (startOffset !== -1) {
+      const off = textNode.textContent.indexOf(searchText);
+      if (off !== -1) {
         const range = document.createRange();
-        range.setStart(textNode, startOffset);
-        range.setEnd(textNode, startOffset + searchText.length);
+        range.setStart(textNode, off);
+        range.setEnd(textNode, off + searchText.length);
         return range;
       }
     }
-
-    // ── Strategy 2: multi-node — use innerText for reliable cross-element search ──
-    const bodyText = document.body.innerText;
-    const pos = bodyText.indexOf(searchText);
-    if (pos !== -1) {
-      const rangeFromInnerText = resolveInnerTextRange(pos, searchText.length);
-      if (rangeFromInnerText) return rangeFromInnerText;
-    }
-
-    // ── Strategy 3: whitespace-normalized innerText search ──
-    const normalSearch = searchText.replace(/\s+/g, " ").trim();
-    const normalBody = bodyText.replace(/\s+/g, " ");
-    const normalPos = normalBody.indexOf(normalSearch);
-    if (normalPos !== -1) {
-      // Map normalized position back to original innerText position
-      let origPos = 0, normIdx = 0;
-      for (; origPos < bodyText.length && normIdx < normalPos; origPos++) {
-        if (/\s/.test(bodyText[origPos])) {
-          if (origPos === 0 || !/\s/.test(bodyText[origPos - 1])) normIdx++;
-        } else {
-          normIdx++;
-        }
-      }
-      // Find the original length by mapping the end position too
-      let origEnd = origPos, normEndIdx = normIdx;
-      const normEndTarget = normalPos + normalSearch.length;
-      for (; origEnd < bodyText.length && normEndIdx < normEndTarget; origEnd++) {
-        if (/\s/.test(bodyText[origEnd])) {
-          if (origEnd === 0 || !/\s/.test(bodyText[origEnd - 1])) normEndIdx++;
-        } else {
-          normEndIdx++;
-        }
-      }
-      const rangeFromNorm = resolveInnerTextRange(origPos, origEnd - origPos);
-      if (rangeFromNorm) return rangeFromNorm;
-    }
-
     return null;
   }
 
@@ -378,7 +448,7 @@
   /* ════════════════════════════════════════════
      CREATE HIGHLIGHT FROM SELECTION
      ════════════════════════════════════════════ */
-  function captureSelection(color = "yellow") {
+  function captureSelection(color = "yellow", label = null) {
     const sel = window.getSelection();
     let range = null;
     let text = "";
@@ -403,23 +473,38 @@
     }
 
     const id = uid();
+
+    // Capture text context (prefix/suffix) for robust fallback anchoring
+    let prefix = "", suffix = "";
+    try {
+      const bodyText = document.body.innerText;
+      const selPos = bodyText.indexOf(text);
+      if (selPos !== -1) {
+        prefix = bodyText.slice(Math.max(0, selPos - 32), selPos).replace(/\s+/g, " ").trim();
+        suffix = bodyText.slice(selPos + text.length, selPos + text.length + 32).replace(/\s+/g, " ").trim();
+      }
+    } catch {}
+
     const anchor = {
       startContainerXPath: getXPath(range.startContainer),
       startOffset: range.startOffset,
       endContainerXPath: getXPath(range.endContainer),
       endOffset: range.endOffset,
+      prefix,
+      suffix,
     };
 
     const record = {
       id,
       text,
-      note: "",
+      comments: [],
       color,
       anchor,
       createdAt: new Date().toISOString(),
       url: getCurrentUrl(),
       title: document.title,
     };
+    if (label) record.label = label;
 
     wrapRange(range, id, color);
     try { if (sel && sel.rangeCount) sel.removeAllRanges(); } catch {}
@@ -495,10 +580,9 @@
 
   /* ════════════════════════════════════════════
      REPAINT STORED HIGHLIGHTS
-     Two-phase approach:
-       Phase 1 — resolve ALL XPaths while the DOM is still clean
-       Phase 2 — paint resolved ranges, then text-search for the rest
-     This prevents painting one highlight from breaking XPaths of others.
+     Text-search based: finds each highlight's text
+     in the live DOM using prefix/suffix context for
+     disambiguation.
      ════════════════════════════════════════════ */
   function repaintAll() {
     const currentUrl = getCurrentUrl();
@@ -512,66 +596,20 @@
     let painted = 0;
     let failed = 0;
 
-    // ── Phase 1: resolve all XPaths BEFORE any DOM changes ──
-    const resolved = [];   // { h, range }
-    const unresolved = []; // highlights whose XPath failed
-
     for (const h of pageHighlights) {
       if (document.querySelector(`[data-cs-id="${h.id}"]`)) { painted++; continue; }
-
-      let range = null;
       try {
-        const startNode = resolveXPath(h.anchor.startContainerXPath);
-        const endNode   = resolveXPath(h.anchor.endContainerXPath);
-        if (startNode && endNode) {
-          range = document.createRange();
-          range.setStart(startNode, h.anchor.startOffset);
-          range.setEnd(endNode, h.anchor.endOffset);
-          const rangeText = range.toString().trim();
-          if (!(rangeText && (rangeText === h.text || h.text.includes(rangeText) || rangeText.includes(h.text)))) {
-            console.log(`[Vantage] XPath text mismatch: "${rangeText.slice(0,40)}" vs "${h.text.slice(0,40)}"`);
-            range = null;
-          }
-        }
-      } catch (e) {
-        console.log(`[Vantage] XPath resolve failed for "${h.text.slice(0,40)}":`, e.message);
-        range = null;
-      }
-
-      if (range) {
-        resolved.push({ h, range });
-      } else {
-        unresolved.push(h);
-      }
-    }
-
-    // ── Phase 2a: paint the XPath-resolved ranges ──
-    for (const { h, range } of resolved) {
-      try {
-        wrapRange(range, h.id, h.color || "yellow");
-        painted++;
-      } catch (e) {
-        console.log(`[Vantage] XPath paint failed for "${h.text.slice(0,40)}":`, e.message);
-        unresolved.push(h);
-      }
-    }
-
-    // ── Phase 2b: text-search fallback for unresolved highlights ──
-    for (const h of unresolved) {
-      if (document.querySelector(`[data-cs-id="${h.id}"]`)) { painted++; continue; }
-      try {
-        const range = findTextInDOM(h.text);
+        const range = findTextInDOM(h.text, h.anchor?.prefix, h.anchor?.suffix);
         if (range) {
           wrapRange(range, h.id, h.color || "yellow");
           painted++;
-          console.log(`[Vantage] Text-search fallback succeeded for: "${h.text.slice(0,40)}"`);
         } else {
           failed++;
           console.log(`[Vantage] Could not repaint: "${h.text.slice(0,60)}"`);
         }
       } catch (e) {
         failed++;
-        console.log(`[Vantage] Text-search fallback failed for "${h.text.slice(0,40)}":`, e.message);
+        console.log(`[Vantage] Repaint failed for "${h.text.slice(0,40)}":`, e.message);
       }
     }
 
@@ -609,36 +647,10 @@
 
       console.log(`[Vantage] Retry repaint ${retryCount}/${maxRetries} — ${unpainted.length} unpainted`);
 
-      // Phase 1: resolve XPaths while DOM is clean
-      const resolved = [];
-      const unresolved = [];
       for (const h of unpainted) {
-        let range = null;
-        try {
-          const startNode = resolveXPath(h.anchor.startContainerXPath);
-          const endNode = resolveXPath(h.anchor.endContainerXPath);
-          if (startNode && endNode) {
-            range = document.createRange();
-            range.setStart(startNode, h.anchor.startOffset);
-            range.setEnd(endNode, h.anchor.endOffset);
-            const rangeText = range.toString().trim();
-            if (!(rangeText && (rangeText === h.text || h.text.includes(rangeText) || rangeText.includes(h.text)))) {
-              range = null;
-            }
-          }
-        } catch { range = null; }
-        if (range) resolved.push({ h, range }); else unresolved.push(h);
-      }
-      // Phase 2a: paint XPath-resolved
-      for (const { h, range } of resolved) {
-        try { wrapRange(range, h.id, h.color || "yellow"); }
-        catch { unresolved.push(h); }
-      }
-      // Phase 2b: text-search fallback
-      for (const h of unresolved) {
         if (document.querySelector(`[data-cs-id="${h.id}"]`)) continue;
         try {
-          const range = findTextInDOM(h.text);
+          const range = findTextInDOM(h.text, h.anchor?.prefix, h.anchor?.suffix);
           if (range) wrapRange(range, h.id, h.color || "yellow");
         } catch { /* skip */ }
       }
@@ -658,84 +670,128 @@
 
     const isCloudHighlight = !!record._cloud;
     const isViewerRole = cloudSync && cloudSync.role === CloudSync.ROLES.VIEWER;
-    const canEditThis = !isViewerRole;
+    const canComment = !isViewerRole;
     const canDeleteThis = !cloudSync || cloudSync.canDelete || (!isCloudHighlight);
+    const hasCloud = cloudSync && cloudSync.isConfigured;
+    const labels = hasCloud ? cloudSync.roomLabels : {};
+    const labelKeys = Object.keys(labels);
 
     const rect = highlightEl.getBoundingClientRect();
     const tooltip = document.createElement("div");
     tooltip.className = `cs-tooltip${currentTheme === "light" ? " cs-light" : ""}`;
+    tooltip.dataset.highlightId = id;
+
+    // Label picker: small dots, current label highlighted
+    let labelPickerHtml = "";
+    if (labelKeys.length > 0 && canComment) {
+      const noneLbl = `<button class="cs-lp-dot${!record.label ? " active" : ""}" data-lbl="" title="No label"><span style="background:#71717a"></span></button>`;
+      const lbDots = labelKeys.map(k => {
+        const lb = labels[k];
+        return `<button class="cs-lp-dot${record.label === k ? " active" : ""}" data-lbl="${k}" title="${lb.name}"><span style="background:${lb.color}"></span></button>`;
+      }).join("");
+      labelPickerHtml = `<div class="cs-label-picker">${noneLbl}${lbDots}</div>`;
+    } else if (record.label) {
+      const lb = labels[record.label];
+      const lbName = lb ? lb.name : record.label;
+      const lbColor = lb ? lb.color : "#71717a";
+      labelPickerHtml = `<div class="cs-label-picker"><span class="cs-lp-badge" style="--lb-color:${lbColor}"><span class="cs-lp-badge-dot" style="background:${lbColor}"></span>${lbName}</span></div>`;
+    }
+
+    // Author chip (compact)
     const authorHtml = record._authorName
-      ? (() => {
-          const p = record._authorName.split(" ");
-          const col = ({Amber:"#f59e0b",Azure:"#3b82f6",Coral:"#f97316",Cyan:"#06b6d4",Ember:"#ef4444",Jade:"#10b981",Lime:"#84cc16",Mint:"#34d399",Navy:"#1e40af",Onyx:"#71717a",Pearl:"#e2e8f0",Rose:"#f43f5e",Ruby:"#dc2626",Sage:"#94a3b8",Slate:"#64748b",Teal:"#14b8a6",Violet:"#8b5cf6",Zinc:"#a1a1aa"})[p[0]] || "#71717a";
-          const ini = (p[1]||p[0]||"?").charAt(0);
-          return `<span class="cs-tooltip-author"><span class="cs-tooltip-avatar" style="background:${col}">${ini}</span>${record._authorName}</span>`;
-        })()
+      ? `<span class="cs-tp-author">${authorAvatar(record._authorName)}${record._authorName}</span>`
       : "";
+
+    // Comments
+    const comments = getComments(record);
+    const commentsHtml = comments.length > 0
+      ? comments
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+          .map(c => `<div class="cs-comment-item"><span class="cs-comment-who">${authorAvatar(c.author)}<strong>${escapeHtml(c.author || "Anonymous")}</strong><span class="cs-comment-time">${relativeTime(c.createdAt)}</span></span><div class="cs-comment-text">${escapeHtml(c.text)}</div></div>`
+          ).join("")
+      : "";
+
+    const inputHtml = canComment
+      ? `<div class="cs-comment-input-row">
+           <textarea class="cs-comment-input" placeholder="Comment… (Ctrl+Enter)" rows="1"></textarea>
+           <button class="cs-icon-btn cs-send-comment" title="Send">${IC.send}</button>
+         </div>`
+      : "";
+
     tooltip.innerHTML = `
       <div class="cs-tooltip-header">
-        <span class="cs-tooltip-title">Note${isViewerRole ? " (read-only)" : ""}</span>
+        ${authorHtml}
         <div class="cs-tooltip-header-right">
-          <button class="cs-icon-btn cs-theme-toggle" title="Toggle theme">${currentTheme === "dark" ? IC.sun : IC.moon}</button>
-          ${canDeleteThis ? `<button class="cs-icon-btn cs-delete" title="Remove highlight">${IC.trash}</button>` : ""}
-          ${canEditThis ? `<button class="cs-icon-btn cs-save" title="Save note">${IC.check}</button>` : ""}
+          ${canDeleteThis ? `<button class="cs-icon-btn cs-delete" title="Delete">${IC.trash}</button>` : ""}
           <button class="cs-icon-btn cs-tooltip-close" title="Close">${IC.close}</button>
         </div>
       </div>
-      ${authorHtml}
-      <textarea placeholder="${isViewerRole ? "View only" : "Add a note…"}"${isViewerRole ? " readonly" : ""}>${record.note || ""}</textarea>
+      ${labelPickerHtml}
+      ${commentsHtml ? `<div class="cs-comments-list">${commentsHtml}</div>` : ""}
+      ${inputHtml}
     `;
 
-    tooltip.style.top = (window.scrollY + rect.bottom + 8) + "px";
-    tooltip.style.left = Math.max(8, window.scrollX + rect.left - 20) + "px";
+    tooltip.style.top = (window.scrollY + rect.bottom + 6) + "px";
+    tooltip.style.left = Math.max(8, window.scrollX + rect.left - 12) + "px";
     document.body.appendChild(tooltip);
     activeTooltip = tooltip;
 
-    const textarea = tooltip.querySelector("textarea");
-    textarea.focus();
+    const commentsList = tooltip.querySelector(".cs-comments-list");
+    if (commentsList) commentsList.scrollTop = commentsList.scrollHeight;
 
     tooltip.querySelector(".cs-tooltip-close").addEventListener("click", closeTooltip);
 
-    // Theme toggle inside tooltip
-    tooltip.querySelector(".cs-theme-toggle").addEventListener("click", () => {
-      currentTheme = currentTheme === "dark" ? "light" : "dark";
-      chrome.storage.local.set({ theme: currentTheme });
-      // Re-apply theme to this tooltip live
-      tooltip.classList.toggle("cs-light", currentTheme === "light");
-      tooltip.querySelector(".cs-theme-toggle").innerHTML = currentTheme === "dark" ? IC.sun : IC.moon;
-    });
-
-    const saveBtn = tooltip.querySelector(".cs-save");
-    if (saveBtn) {
-      saveBtn.addEventListener("click", () => {
-        record.note = textarea.value.trim();
-        saveHighlights();
-        if (cloudSync && cloudSync.isConfigured) {
-          cloudSync.pushHighlight(record).catch(() => {});
-        }
-        closeTooltip();
-      });
-    }
-
     const deleteBtn = tooltip.querySelector(".cs-delete");
     if (deleteBtn) {
-      deleteBtn.addEventListener("click", () => {
-        removeHighlight(id);
-        closeTooltip();
-      });
+      deleteBtn.addEventListener("click", () => { removeHighlight(id); closeTooltip(); });
     }
 
-    textarea.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") closeTooltip();
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canEditThis) {
-        record.note = textarea.value.trim();
+    // Label picker events
+    tooltip.querySelectorAll(".cs-lp-dot").forEach(dot => {
+      dot.addEventListener("click", () => {
+        const newLabel = dot.dataset.lbl || null;
+        record.label = newLabel;
+        if (!newLabel) delete record.label;
         saveHighlights();
-        if (cloudSync && cloudSync.isConfigured) {
-          cloudSync.pushHighlight(record).catch(() => {});
-        }
-        closeTooltip();
-      }
+        if (hasCloud) cloudSync.pushHighlight(record).catch(() => {});
+        tooltip.querySelectorAll(".cs-lp-dot").forEach(d => d.classList.remove("active"));
+        dot.classList.add("active");
+      });
     });
+
+    const inputArea = tooltip.querySelector(".cs-comment-input");
+    const sendBtn = tooltip.querySelector(".cs-send-comment");
+    if (inputArea && sendBtn) {
+      const submitComment = () => {
+        const text = inputArea.value.trim();
+        if (!text) return;
+        const myName = (cloudSync && cloudSync._userName) || "You";
+        if (!Array.isArray(record.comments)) record.comments = [];
+        record.comments.push({ text, author: myName, createdAt: new Date().toISOString() });
+        delete record.note;
+        saveHighlights();
+        if (hasCloud) cloudSync.pushHighlight(record).catch(() => {});
+        refreshOpenTooltip(id);
+      };
+      sendBtn.addEventListener("click", submitComment);
+      inputArea.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeTooltip();
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitComment(); }
+      });
+      inputArea.focus();
+    }
+  }
+
+  function refreshOpenTooltip(highlightId) {
+    if (!activeTooltip || activeTooltip.dataset.highlightId !== highlightId) return;
+    const el = document.querySelector(`[data-cs-id="${highlightId}"]`);
+    if (el) showTooltip(el);
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement("div");
+    d.textContent = str || "";
+    return d.innerHTML;
   }
 
   function closeTooltip() {
@@ -750,12 +806,11 @@
      ════════════════════════════════════════════ */
   function showActionBar(x, y) {
     closeActionBar();
-
-    // ★ Snapshot the selection NOW before anything can steal it
     snapshotSelection();
 
     const bar = document.createElement("div");
     bar.className = `cs-action-bar${currentTheme === "light" ? " cs-light" : ""}`;
+
     const colors = [
       { name: "yellow", hex: "#facc15" },
       { name: "green",  hex: "#34d399" },
@@ -764,30 +819,25 @@
       { name: "orange", hex: "#fb923c" },
     ];
     bar.innerHTML = colors.map(c =>
-      `<button data-color="${c.name}" title="Highlight ${c.name}">
+      `<button data-color="${c.name}" title="${c.name}">
          <span class="cs-color-dot" style="background:${c.hex}"></span>
        </button>`
     ).join("");
 
-    bar.style.top = (window.scrollY + y - 48) + "px";
+    bar.style.top = (window.scrollY + y - 40) + "px";
     bar.style.left = (window.scrollX + x) + "px";
     document.body.appendChild(bar);
     activeActionBar = bar;
 
-    // ★ Prevent mousedown on buttons from stealing focus / clearing selection
-    bar.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
+    bar.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
 
     bar.addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-color]");
-      if (!btn) return;
+      const colorBtn = e.target.closest("button[data-color]");
+      if (!colorBtn) return;
       e.preventDefault();
       e.stopPropagation();
-      const record = captureSelection(btn.dataset.color);
+      const record = captureSelection(colorBtn.dataset.color);
       closeActionBar();
-      // Auto-open the note tooltip so user can optionally add a comment
       if (record) {
         setTimeout(() => {
           const el = document.querySelector(`[data-cs-id="${record.id}"]`);
@@ -944,36 +994,10 @@
     );
     if (unpainted.length === 0) return;
 
-    // Phase 1: resolve all XPaths while DOM is clean
-    const resolved = [];
-    const unresolved = [];
     for (const h of unpainted) {
-      let range = null;
-      try {
-        const startNode = resolveXPath(h.anchor.startContainerXPath);
-        const endNode   = resolveXPath(h.anchor.endContainerXPath);
-        if (startNode && endNode) {
-          range = document.createRange();
-          range.setStart(startNode, h.anchor.startOffset);
-          range.setEnd(endNode, h.anchor.endOffset);
-          const rangeText = range.toString().trim();
-          if (!(rangeText && (rangeText === h.text || h.text.includes(rangeText) || rangeText.includes(h.text)))) {
-            range = null;
-          }
-        }
-      } catch { range = null; }
-      if (range) resolved.push({ h, range }); else unresolved.push(h);
-    }
-    // Phase 2a: paint resolved
-    for (const { h, range } of resolved) {
-      try { wrapRange(range, h.id, h.color || "yellow"); }
-      catch { unresolved.push(h); }
-    }
-    // Phase 2b: text-search fallback
-    for (const h of unresolved) {
       if (document.querySelector(`[data-cs-id="${h.id}"]`)) continue;
       try {
-        const range = findTextInDOM(h.text);
+        const range = findTextInDOM(h.text, h.anchor?.prefix, h.anchor?.suffix);
         if (range) wrapRange(range, h.id, h.color || "yellow");
       } catch { /* skip */ }
     }
@@ -1002,25 +1026,28 @@
      ════════════════════════════════════════════ */
 
   function initCloudSync(config) {
+    if (cloudSync) {
+      cloudSync.disconnectAll();
+      cloudSync = null;
+    }
+
     if (!config || !config.firebaseUrl || !config.packKey) {
-      if (cloudSync) {
-        cloudSync.disconnectAll();
-        cloudSync = null;
-        removePresenceIndicator();
-        console.log("[Vantage] Cloud sync disconnected");
-      }
+      removePresenceIndicator();
+      console.log("[Vantage] Cloud sync disconnected");
       return;
     }
 
     cloudSync = new CloudSync();
     cloudSync.configure(config.firebaseUrl, config.packKey, config.role || "viewer", config.userName);
-    console.log("[Vantage] Cloud sync active — pack:", config.packKey, "role:", config.role, "as:", config.userName);
+    cloudSync.fetchLabels();
 
     fetchAndMergeCloudHighlights();
     cloudSubscribeCurrentUrl();
 
-    // Presence: announce, heartbeat, and subscribe to viewer changes
-    cloudSync.startHeartbeat(getCurrentUrl);
+    cloudSync._nameReady.then(() => {
+      console.log("[Vantage] Cloud sync active — pack:", config.packKey, "role:", config.role, "as:", cloudSync._userName);
+      cloudSync.startHeartbeat(getCurrentUrl);
+    });
     cloudSync.subscribePresence((viewers) => {
       updatePresenceIndicator(viewers);
     });
@@ -1046,18 +1073,13 @@
       document.body.appendChild(indicator);
     }
 
-    const _colorHex = {
-      Amber:"#f59e0b",Azure:"#3b82f6",Coral:"#f97316",Cyan:"#06b6d4",
-      Ember:"#ef4444",Jade:"#10b981",Lime:"#84cc16",Mint:"#34d399",
-      Navy:"#1e40af",Onyx:"#71717a",Pearl:"#e2e8f0",Rose:"#f43f5e",
-      Ruby:"#dc2626",Sage:"#94a3b8",Slate:"#64748b",Teal:"#14b8a6",
-      Violet:"#8b5cf6",Zinc:"#a1a1aa",
-    };
+    indicator.classList.toggle("vp-light", currentTheme === "light");
+
     const names = others.map(([, v]) => v.name || "Anonymous");
     const overflow = names.length > 3 ? ` +${names.length - 3}` : "";
     const nameChips = names.slice(0, 3).map(n => {
       const parts = n.split(" ");
-      const color = _colorHex[parts[0]] || "#71717a";
+      const color = _nameColors[parts[0]] || "#71717a";
       const initial = (parts[1] || parts[0] || "?").charAt(0);
       return `<span class="vp-name"><span class="vp-avatar" style="background:${color}">${initial}</span>${n}</span>`;
     }).join("") + (overflow ? `<span class="vp-overflow">${overflow}</span>` : "");
@@ -1065,7 +1087,7 @@
     indicator.innerHTML = `
       <span class="vp-dot"></span>
       <span class="vp-count">${count}</span>
-      <span class="vp-label">${count === 1 ? "viewer" : "viewers"}</span>
+      <span class="vp-label">online</span>
       <span class="vp-names">${nameChips}</span>
     `;
     indicator.title = names.join(", ");
@@ -1117,10 +1139,8 @@
       (remoteHighlight) => {
         console.log("[Vantage] Cloud highlight received:", remoteHighlight.text?.slice(0, 50));
 
-        // Skip if already painted locally
         if (document.querySelector(`[data-cs-id="${remoteHighlight.id}"]`)) return;
 
-        // Always save to local cache first so the dashboard sees it
         const existing = highlights.find(h => h.id === remoteHighlight.id);
         if (!existing) {
           const { _author, ...clean } = remoteHighlight;
@@ -1130,7 +1150,6 @@
           saveHighlights();
         }
 
-        // Then try to paint
         const painted = tryPaintCloudHighlight(remoteHighlight);
         if (painted) {
           console.log("[Vantage] Cloud highlight painted:", remoteHighlight.text?.slice(0, 40));
@@ -1142,35 +1161,28 @@
       (deletedId) => {
         console.log("[Vantage] Cloud highlight deleted:", deletedId);
         removeHighlight(deletedId);
+      },
+      (updatedHighlight) => {
+        const local = highlights.find(h => h.id === updatedHighlight.id);
+        if (!local) return;
+        if (updatedHighlight.comments) local.comments = updatedHighlight.comments;
+        if (updatedHighlight.note !== undefined) local.note = updatedHighlight.note;
+        saveHighlights();
+        refreshOpenTooltip(local.id);
       }
     );
   }
 
   function tryPaintCloudHighlight(hl) {
     if (document.querySelector(`[data-cs-id="${hl.id}"]`)) return true;
+    if (!hl.text) return false;
     try {
-      if (hl.anchor) {
-        const startNode = resolveXPath(hl.anchor.startContainerXPath);
-        const endNode = resolveXPath(hl.anchor.endContainerXPath);
-        if (startNode && endNode) {
-          const range = document.createRange();
-          range.setStart(startNode, hl.anchor.startOffset);
-          range.setEnd(endNode, hl.anchor.endOffset);
-          const rangeText = range.toString().trim();
-          if (rangeText && (rangeText === hl.text || hl.text.includes(rangeText) || rangeText.includes(hl.text))) {
-            wrapRange(range, hl.id, hl.color || "yellow");
-            return true;
-          }
-        }
-      }
-    } catch {}
-    if (hl.text) {
-      const range = findTextInDOM(hl.text);
+      const range = findTextInDOM(hl.text, hl.anchor?.prefix, hl.anchor?.suffix);
       if (range) {
         wrapRange(range, hl.id, hl.color || "yellow");
         return true;
       }
-    }
+    } catch {}
     return false;
   }
 

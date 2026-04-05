@@ -148,7 +148,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     chrome.storage.local.set({ firebaseUrl: fbUrl });
     chrome.runtime.sendMessage(
-      { action: "create-cloud-pack", firebaseUrl: fbUrl, name: "My Pack" },
+      { action: "create-cloud-pack", firebaseUrl: fbUrl, name: "My Room" },
       (resp) => {
         btn.disabled = false;
         btn.textContent = "Create Pack";
@@ -227,7 +227,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   function showConnectedUI(config) {
     cloudDisconnected.classList.add("hidden");
     cloudConnected.classList.remove("hidden");
-    document.getElementById("cloudPackName").textContent = config.packName || "Cloud Pack";
+
+    const nameEl = document.getElementById("cloudPackName");
+    nameEl.textContent = config.packName || "My Room";
     document.getElementById("cloudPackKey").textContent = config.packKey;
 
     const role = config.role || "viewer";
@@ -245,9 +247,53 @@ document.addEventListener("DOMContentLoaded", async () => {
     const roleSelector = document.getElementById("roleSelector");
     if (role === "editor") {
       roleSelector.classList.remove("hidden");
+      nameEl.classList.add("editable");
+      nameEl.title = "Click to rename";
+      nameEl.onclick = () => startRoomNameEdit(config);
     } else {
       roleSelector.classList.add("hidden");
+      nameEl.classList.remove("editable");
+      nameEl.title = "";
+      nameEl.onclick = null;
     }
+  }
+
+  function startRoomNameEdit(config) {
+    const nameEl = document.getElementById("cloudPackName");
+    const currentName = nameEl.textContent;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "cloud-name-input";
+    input.value = currentName;
+    input.maxLength = 40;
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+      const newName = input.value.trim() || currentName;
+      const span = document.createElement("span");
+      span.className = "cloud-pack-name editable";
+      span.id = "cloudPackName";
+      span.textContent = newName;
+      span.title = "Click to rename";
+      span.onclick = () => startRoomNameEdit({ ...config, packName: newName });
+      input.replaceWith(span);
+      if (newName !== currentName) {
+        chrome.runtime.sendMessage({
+          action: "update-room-name",
+          firebaseUrl: config.firebaseUrl,
+          packKey: config.packKey,
+          newName,
+        });
+      }
+    };
+
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      if (e.key === "Escape") { input.value = currentName; input.blur(); }
+    });
   }
 
   function showDisconnectedUI() {

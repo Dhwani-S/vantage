@@ -73,6 +73,22 @@ const NAME_COLOR_HEX = {
 };
 
 /* ════════════════════════════════════════════
+   DEFAULT ROOM LABELS
+   ════════════════════════════════════════════ */
+const DEFAULT_LABELS = {
+  info:      { name: "Info",      color: "#3b82f6" },
+  bug:       { name: "Bug",       color: "#ef4444" },
+  question:  { name: "Question",  color: "#f59e0b" },
+  important: { name: "Important", color: "#f97316" },
+  todo:      { name: "Todo",      color: "#8b5cf6" },
+  review:    { name: "Review",    color: "#10b981" },
+};
+
+const _nameCache = new Map();
+
+function roleRank(r) { return r === "editor" ? 3 : r === "commentor" ? 2 : 1; }
+
+/* ════════════════════════════════════════════
    PER-WINDOW SESSION IDS
    Uses chrome.storage.session (survives SW restarts,
    clears on browser close). Each Chrome window gets
@@ -99,14 +115,17 @@ function resolveWindowId(sender) {
 
 async function assignRoomName(firebaseUrl, packKey, windowId, callback) {
   const sessionId = await getWindowSessionId(windowId);
+  const cacheKey = `${packKey}__${sessionId}`;
   const memberUrl = `${firebaseUrl}/packs/${packKey}/members/${sessionId}.json`;
   try {
     const resp = await fetch(memberUrl);
     const existing = resp.ok ? await resp.json() : null;
     if (existing && existing.name) {
+      _nameCache.set(cacheKey, Promise.resolve(existing.name));
       callback(existing.name, sessionId);
     } else {
       const name = generateAnonName();
+      _nameCache.set(cacheKey, Promise.resolve(name));
       const entry = { name, joinedAt: new Date().toISOString() };
       await fetch(memberUrl, {
         method: "PUT",
@@ -116,7 +135,9 @@ async function assignRoomName(firebaseUrl, packKey, windowId, callback) {
       callback(name, sessionId);
     }
   } catch {
-    callback(generateAnonName(), sessionId);
+    const name = generateAnonName();
+    _nameCache.set(cacheKey, Promise.resolve(name));
+    callback(name, sessionId);
   }
 }
 
@@ -207,9 +228,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const packKey = `CS-${block()}-${block()}`;
 
     const meta = {
-      name: name || "Untitled Pack",
+      name: name || "My Room",
       createdAt: new Date().toISOString(),
       defaultRole: "commentor",
+      labels: DEFAULT_LABELS,
     };
 
     resolveWindowId(sender).then(windowId => {
@@ -233,28 +255,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "join-cloud-pack") {
-    const { firebaseUrl, packKey } = msg;
+    const { firebaseUrl, packKey: inputKey } = msg;
     const url = (firebaseUrl || "").replace(/\/+$/, "");
-    if (!url || !packKey) { sendResponse({ error: "Missing URL or key" }); return true; }
+    if (!url || !inputKey) { sendResponse({ error: "Missing URL or key" }); return true; }
 
-    resolveWindowId(sender).then(windowId => {
-      fetch(`${url}/packs/${packKey}/meta.json`)
-        .then(resp => {
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          return resp.json();
-        })
-        .then(meta => {
-          if (!meta) throw new Error("Pack not found");
-          const role = meta.defaultRole || "viewer";
-          assignRoomName(url, packKey, windowId, (userName) => {
-            const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role, userName };
-            chrome.storage.local.set({ cloudPack: config }, () => {
-              writePresenceFromBg(url, packKey, role, userName, windowId);
-              addToRoomHistory(config, () => sendResponse({ ok: true, config }));
-            });
+    resolveWindowId(sender).then(async (windowId) => {
+      try {
+        // Step 1: check if inputKey is a master key (room identifier)
+        let metaResp = await fetch(`${url}/packs/${inputKey}/meta.json`);
+        let meta = metaResp.ok ? await metaResp.json() : null;
+        let roomKey = inputKey;
+        let role = "editor";
+
+        if (meta) {
+          // Master key — join as editor
+          role = "editor";
+        } else {
+          // Step 2: check the global key index for an invite key
+          const idxResp = await fetch(`${url}/keyIndex/${inputKey}.json`);
+          const idx = idxResp.ok ? await idxResp.json() : null;
+          if (!idx || !idx.packKey) throw new Error("Room not found");
+          roomKey = idx.packKey;
+          role = idx.role || "viewer";
+          metaResp = await fetch(`${url}/packs/${roomKey}/meta.json`);
+          meta = metaResp.ok ? await metaResp.json() : null;
+          if (!meta) throw new Error("Room no longer exists");
+        }
+
+        assignRoomName(url, roomKey, windowId, (userName) => {
+          const config = { firebaseUrl: url, packKey: roomKey, packName: meta.name || roomKey, role, userName };
+          chrome.storage.local.set({ cloudPack: config }, () => {
+            writePresenceFromBg(url, roomKey, role, userName, windowId);
+            addToRoomHistory(config, () => sendResponse({ ok: true, config }));
           });
-        })
-        .catch(err => sendResponse({ error: err.message }));
+        });
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
     });
     return true;
   }
@@ -265,14 +302,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!url || !packKey) { sendResponse({ error: "Missing URL or key" }); return true; }
 
     resolveWindowId(sender).then(windowId => {
-      fetch(`${url}/packs/${packKey}/meta.json`)
-        .then(resp => {
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          return resp.json();
-        })
-        .then(meta => {
+      Promise.all([
+        fetch(`${url}/packs/${packKey}/meta.json`).then(r => r.ok ? r.json() : null),
+        new Promise(resolve => chrome.storage.local.get("roomHistory", d => resolve(d.roomHistory || []))),
+      ]).then(([meta, history]) => {
           if (!meta) throw new Error("Room no longer exists");
-          const role = meta.defaultRole || "viewer";
+          const defaultRole = meta.defaultRole || "viewer";
+          const stored = history.find(r => r.packKey === packKey && r.firebaseUrl === url);
+          const storedRole = stored?.role || defaultRole;
+          const role = roleRank(storedRole) >= roleRank(defaultRole) ? storedRole : defaultRole;
           assignRoomName(url, packKey, windowId, (userName) => {
             const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role, userName };
             chrome.storage.local.set({ cloudPack: config }, () => {
@@ -363,8 +401,65 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "get-my-name") {
+    const { firebaseUrl, packKey } = msg;
+    const windowId = sender?.tab?.windowId;
+    if (windowId === undefined) { sendResponse({ name: null }); return true; }
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({ name: null }); return true; }
+    getWindowSessionId(windowId).then(sessionId => {
+      const cacheKey = `${packKey}__${sessionId}`;
+      if (_nameCache.has(cacheKey)) {
+        _nameCache.get(cacheKey).then(name => sendResponse({ name }));
+        return;
+      }
+      const lookup = fetch(`${url}/packs/${packKey}/members/${sessionId}.json`)
+        .then(resp => resp.ok ? resp.json() : null)
+        .then(data => {
+          if (data && data.name) return data.name;
+          const name = generateAnonName();
+          const entry = { name, joinedAt: new Date().toISOString() };
+          fetch(`${url}/packs/${packKey}/members/${sessionId}.json`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(entry),
+          }).catch(() => {});
+          return name;
+        })
+        .catch(() => null);
+      _nameCache.set(cacheKey, lookup);
+      lookup.then(name => sendResponse({ name }));
+    });
+    return true;
+  }
+
   if (msg.action === "get-name-colors") {
     sendResponse(NAME_COLOR_HEX);
+    return true;
+  }
+
+  if (msg.action === "get-room-labels") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({}); return true; }
+    fetch(`${url}/packs/${packKey}/meta/labels.json`)
+      .then(resp => resp.ok ? resp.json() : null)
+      .then(data => sendResponse(data || {}))
+      .catch(() => sendResponse({}));
+    return true;
+  }
+
+  if (msg.action === "set-room-labels") {
+    const { firebaseUrl, packKey, labels } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({ ok: false }); return true; }
+    fetch(`${url}/packs/${packKey}/meta/labels.json`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(labels || {}),
+    })
+      .then(resp => sendResponse({ ok: resp.ok }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 
@@ -517,6 +612,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.remove(["highlights", "cloudPack", "roomHistory"], () => {
       sendResponse({ ok: true });
     });
+    return true;
+  }
+
+  // ── Room Key Management ─────────────────────
+  if (msg.action === "add-room-key") {
+    const { firebaseUrl, packKey, role, label } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey || !role) { sendResponse({ error: "Missing params" }); return true; }
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const block = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    const newKey = `VK-${block()}-${block()}`;
+    const entry = { role, label: label || "", createdAt: new Date().toISOString() };
+    const indexEntry = { packKey, role };
+    Promise.all([
+      fetch(`${url}/packs/${packKey}/keys/${newKey}.json`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(entry) }),
+      fetch(`${url}/keyIndex/${newKey}.json`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(indexEntry) }),
+    ])
+      .then(([r1, r2]) => {
+        if (!r1.ok || !r2.ok) throw new Error("Failed to create key");
+        sendResponse({ ok: true, key: newKey, entry });
+      })
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === "get-room-keys") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({}); return true; }
+    fetch(`${url}/packs/${packKey}/keys.json`)
+      .then(resp => resp.ok ? resp.json() : null)
+      .then(data => sendResponse(data || {}))
+      .catch(() => sendResponse({}));
+    return true;
+  }
+
+  if (msg.action === "delete-room-key") {
+    const { firebaseUrl, packKey, key } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey || !key) { sendResponse({ error: "Missing params" }); return true; }
+    Promise.all([
+      fetch(`${url}/packs/${packKey}/keys/${key}.json`, { method: "DELETE" }),
+      fetch(`${url}/keyIndex/${key}.json`, { method: "DELETE" }),
+    ])
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ error: err.message }));
     return true;
   }
 

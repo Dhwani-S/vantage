@@ -16,6 +16,10 @@
   let activeCloudConfig = null;
   let selectedRoom = null;   // { firebaseUrl, packKey, packName, role }
   let roomHighlights = {};   // fetched from Firebase for the selected room
+  let cachedLabels = {};     // room labels cache: { id: { name, color } }
+  let filterLabel = null;    // active label filter
+  let filterAuthor = null;   // active author name filter
+  let filterRoomDomain = null; // active domain filter (room view only)
 
   const NAME_COLOR_HEX = {
     Amber: "#f59e0b", Azure: "#3b82f6", Coral: "#f97316", Cyan: "#06b6d4",
@@ -24,6 +28,12 @@
     Ruby: "#dc2626", Sage: "#94a3b8", Slate: "#64748b", Teal: "#14b8a6",
     Violet: "#8b5cf6", Zinc: "#a1a1aa",
   };
+
+  function getComments(h) {
+    if (Array.isArray(h.comments) && h.comments.length > 0) return h.comments;
+    if (h.note) return [{ text: h.note, author: h._authorName || "Anonymous", createdAt: h.createdAt }];
+    return [];
+  }
 
   /* ════════════════════════════════════════════
      INIT
@@ -107,6 +117,10 @@
           if (idEl) idEl.innerHTML = `<span class="dash-identity-label">You are</span> ${avatarHTML(status.userName, 18)} <span class="dash-identity-name">${escapeHTML(status.userName)}</span>`;
         }
         loadPresenceCount(status);
+        chrome.runtime.sendMessage(
+          { action: "get-room-labels", firebaseUrl: status.firebaseUrl, packKey: status.packKey },
+          (labels) => { cachedLabels = labels || {}; }
+        );
       } else {
         container.innerHTML = `<span class="cloud-offline">Not connected</span>`;
       }
@@ -161,10 +175,7 @@
           <div class="room-item${isActive ? " room-active" : ""}${isSelected ? " room-selected" : ""}"
                data-key="${escapeAttr(r.packKey)}" data-url="${escapeAttr(r.firebaseUrl)}"
                data-name="${escapeAttr(r.packName || r.packKey)}" data-role="${escapeAttr(r.role || "viewer")}">
-            <div class="room-item-info">
-              <span class="room-item-name">${escapeHTML(r.packName || r.packKey)}</span>
-              <code class="room-item-key">${escapeHTML(r.packKey)}</code>
-            </div>
+            <span class="room-item-name">${escapeHTML(r.packName || r.packKey)}</span>
             <div class="room-item-meta">
               <span class="room-item-role role-${r.role || "viewer"}">${r.role || "viewer"}</span>
               ${isActive ? '<span class="room-item-live"></span>' : ""}
@@ -213,6 +224,9 @@
         btn.classList.add("active");
         currentView = btn.dataset.view;
         filterDomain = null;
+        filterLabel = null;
+        filterAuthor = null;
+        filterRoomDomain = null;
         selectedRoom = null;
         render();
         loadRoomManager(activeCloudConfig);
@@ -302,6 +316,7 @@
   function render() {
     updateStats();
     renderDomainList();
+    renderFilterBar();
     renderContent();
     updateDeleteBtn();
   }
@@ -311,7 +326,7 @@
     const pages = Object.keys(allData);
     for (const url of pages) {
       totalH += allData[url].length;
-      totalN += allData[url].filter(h => h.note).length;
+      totalN += allData[url].filter(h => getComments(h).length > 0).length;
     }
     document.getElementById("statHighlights").textContent = totalH;
     document.getElementById("statPages").textContent = pages.length;
@@ -342,6 +357,114 @@
     list.querySelectorAll(".domain-item").forEach(el => {
       el.addEventListener("click", () => {
         filterDomain = filterDomain === el.dataset.domain ? null : el.dataset.domain;
+        render();
+      });
+    });
+  }
+
+  /* ── Filter bar (domains + labels + authors) ─ */
+  function renderFilterBar() {
+    const domainContainer = document.getElementById("domainFilters");
+    const labelContainer = document.getElementById("labelFilters");
+    const authorContainer = document.getElementById("authorFilters");
+    const bar = document.getElementById("filterBar");
+    if (!labelContainer || !authorContainer || !bar) return;
+
+    const allFlat = [];
+    const domainCounts = {};
+    const isRoomView = currentView === "room" && selectedRoom && roomHighlights;
+
+    if (isRoomView) {
+      for (const urlHash of Object.keys(roomHighlights)) {
+        const decodedUrl = decodeUrlKey(urlHash);
+        const hls = roomHighlights[urlHash];
+        if (!hls || typeof hls !== "object") continue;
+        const values = Object.values(hls);
+        for (const hl of values) allFlat.push(hl);
+        try {
+          const hostname = new URL(decodedUrl).hostname;
+          domainCounts[hostname] = (domainCounts[hostname] || 0) + values.length;
+        } catch {}
+      }
+    } else {
+      for (const url of Object.keys(allData)) {
+        for (const h of allData[url]) allFlat.push(h);
+      }
+    }
+
+    const labelCounts = {};
+    const authorCounts = {};
+    for (const h of allFlat) {
+      if (h.label) {
+        labelCounts[h.label] = (labelCounts[h.label] || 0) + 1;
+      }
+      if (h._authorName) {
+        authorCounts[h._authorName] = (authorCounts[h._authorName] || 0) + 1;
+      }
+    }
+
+    const hasDomains = Object.keys(domainCounts).length > 1;
+    const hasLabels = Object.keys(labelCounts).length > 0;
+    const hasAuthors = Object.keys(authorCounts).length > 0;
+    const hasFilters = hasDomains || hasLabels || hasAuthors;
+    bar.style.display = hasFilters ? "" : "none";
+    if (!hasFilters) {
+      if (domainContainer) domainContainer.innerHTML = "";
+      labelContainer.innerHTML = "";
+      authorContainer.innerHTML = "";
+      return;
+    }
+
+    if (domainContainer) {
+      if (hasDomains) {
+        domainContainer.innerHTML = `<span class="filter-group-title">Domains</span>` +
+          Object.entries(domainCounts).sort((a, b) => b[1] - a[1]).map(([domain, count]) => {
+            const active = filterRoomDomain === domain ? " active" : "";
+            return `<button class="filter-chip domain-chip${active}" data-domain="${escapeAttr(domain)}">${escapeHTML(domain)}<span class="filter-count">${count}</span></button>`;
+          }).join("");
+        domainContainer.querySelectorAll(".domain-chip").forEach(btn => {
+          btn.addEventListener("click", () => {
+            filterRoomDomain = filterRoomDomain === btn.dataset.domain ? null : btn.dataset.domain;
+            render();
+          });
+        });
+      } else {
+        domainContainer.innerHTML = "";
+      }
+    }
+
+    if (hasLabels) {
+      labelContainer.innerHTML = `<span class="filter-group-title">Labels</span>` +
+        Object.entries(labelCounts).map(([id, count]) => {
+          const lb = cachedLabels[id];
+          const name = lb ? escapeHTML(lb.name) : escapeHTML(id);
+          const color = lb ? lb.color : "#71717a";
+          const active = filterLabel === id ? " active" : "";
+          return `<button class="filter-chip label-chip${active}" data-label="${escapeAttr(id)}"><span class="filter-dot" style="background:${color}"></span>${name}<span class="filter-count">${count}</span></button>`;
+        }).join("");
+    } else {
+      labelContainer.innerHTML = "";
+    }
+
+    if (hasAuthors) {
+      authorContainer.innerHTML = `<span class="filter-group-title">Authors</span>` +
+        Object.entries(authorCounts).map(([name, count]) => {
+          const active = filterAuthor === name ? " active" : "";
+          return `<button class="filter-chip author-chip${active}" data-author="${escapeAttr(name)}">${avatarHTML(name, 14)}${escapeHTML(name)}<span class="filter-count">${count}</span></button>`;
+        }).join("");
+    } else {
+      authorContainer.innerHTML = "";
+    }
+
+    labelContainer.querySelectorAll(".label-chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        filterLabel = filterLabel === btn.dataset.label ? null : btn.dataset.label;
+        render();
+      });
+    });
+    authorContainer.querySelectorAll(".author-chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        filterAuthor = filterAuthor === btn.dataset.author ? null : btn.dataset.author;
         render();
       });
     });
@@ -397,13 +520,24 @@
       });
     }
 
+    // Filter by label
+    if (filterLabel) {
+      flat = flat.filter(h => h.label === filterLabel);
+    }
+
+    // Filter by author
+    if (filterAuthor) {
+      flat = flat.filter(h => h._authorName === filterAuthor);
+    }
+
     // Filter by search
     if (searchQuery) {
       flat = flat.filter(h =>
         h.text.toLowerCase().includes(searchQuery) ||
-        (h.note && h.note.toLowerCase().includes(searchQuery)) ||
+        (getComments(h).some(c => c.text.toLowerCase().includes(searchQuery))) ||
         h.url.toLowerCase().includes(searchQuery) ||
-        (h.title && h.title.toLowerCase().includes(searchQuery))
+        (h.title && h.title.toLowerCase().includes(searchQuery)) ||
+        (h.label && h.label.toLowerCase().includes(searchQuery))
       );
     }
 
@@ -468,15 +602,25 @@
       ? `<span class="card-author">${avatarHTML(h._authorName, 14)} ${escapeHTML(h._authorName)}</span>`
       : "";
 
+    const labelChip = h.label
+      ? (() => {
+          const lb = cachedLabels[h.label];
+          const lbName = lb ? escapeHTML(lb.name) : escapeHTML(h.label);
+          const lbColor = lb ? lb.color : "#71717a";
+          return `<span class="card-label" style="--lb-color:${lbColor}"><span class="card-label-dot" style="background:${lbColor}"></span>${lbName}</span>`;
+        })()
+      : "";
+
     return `
       <div class="highlight-card${selectedClass}${!deletable ? " readonly" : ""}" data-id="${escapeAttr(h.id)}" data-url="${safeUrl}" data-deletable="${deletable}">
         <input type="checkbox" class="card-checkbox"${checked} />
         <div class="card-body">
           <div class="card-text${colorClass}">${escapeHTML(h.text)}</div>
-          ${h.note ? `<div class="card-note">${escapeHTML(h.note)}</div>` : ""}
+          ${renderCommentsPreview(h)}
           <div class="card-meta">
             <a href="${safeUrl}" target="_blank" title="${safeUrl}">${safeTitle}</a>
             <span>${date}</span>
+            ${labelChip}
             ${authorChip}
             ${cloudBadge}
             ${accessBadge}
@@ -489,6 +633,20 @@
         </div>
       </div>
     `;
+  }
+
+  function renderCommentsPreview(h) {
+    const comments = getComments(h);
+    if (comments.length === 0) return "";
+    const sorted = [...comments].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const latest = sorted[0];
+    const authorName = escapeHTML(latest.author || "Anonymous");
+    const preview = escapeHTML(latest.text.length > 80 ? latest.text.slice(0, 80) + "…" : latest.text);
+    const countBadge = comments.length > 1 ? `<span class="card-comment-count">${comments.length} comments</span>` : "";
+    return `<div class="card-comments-preview">
+      <span class="card-comment-latest">${avatarHTML(latest.author || "Anonymous", 12)} <strong>${authorName}</strong>: ${preview}</span>
+      ${countBadge}
+    </div>`;
   }
 
   function wireCardEvents(container) {
@@ -640,8 +798,11 @@
         md += `### [${pageTitle}](${url})\n\n`;
         for (const h of pageItems) {
           md += `> ${h.text}\n\n`;
-          if (h.note) {
-            md += `**Note:** *${h.note}*\n\n`;
+          const hComments = getComments(h);
+          if (hComments.length > 0) {
+            for (const c of hComments) {
+              md += `**${c.author || "Anonymous"}** (${new Date(c.createdAt).toLocaleString()}): *${c.text}*\n\n`;
+            }
           }
           md += `<sub>${new Date(h.createdAt).toLocaleString()}</sub>\n\n`;
         }
@@ -750,40 +911,92 @@
     content.innerHTML = `<div class="room-view-loading">Loading room highlights…</div>`;
 
     chrome.runtime.sendMessage(
+      { action: "get-room-labels", firebaseUrl: selectedRoom.firebaseUrl, packKey: selectedRoom.packKey },
+      (labels) => { cachedLabels = labels || {}; }
+    );
+
+    chrome.runtime.sendMessage(
       { action: "get-room-highlights", firebaseUrl: selectedRoom.firebaseUrl, packKey: selectedRoom.packKey },
       (data) => {
         roomHighlights = data || {};
-        const urlHashes = Object.keys(roomHighlights);
-        if (urlHashes.length === 0) {
-          content.innerHTML = renderRoomHeader() + `<div class="empty-state"><div class="empty-icon">${SVG_HIGHLIGHTER}</div><h3>No highlights in this room</h3><p>Highlights made in this room will appear here.</p></div>`;
+        renderFilterBar();
+
+        // Flatten into filterable array
+        let flat = [];
+        for (const urlHash of Object.keys(roomHighlights)) {
+          const decodedUrl = decodeUrlKey(urlHash);
+          const hls = roomHighlights[urlHash];
+          if (!hls || typeof hls !== "object") continue;
+          for (const [id, hl] of Object.entries(hls)) {
+            flat.push({ ...hl, _id: id, _url: decodedUrl });
+          }
+        }
+
+        // Apply active filters
+        if (filterLabel) flat = flat.filter(h => h.label === filterLabel);
+        if (filterAuthor) flat = flat.filter(h => h._authorName === filterAuthor);
+        if (filterRoomDomain) {
+          flat = flat.filter(h => {
+            try { return new URL(h._url).hostname === filterRoomDomain; } catch { return false; }
+          });
+        }
+        if (searchQuery) {
+          flat = flat.filter(h =>
+            (h.text || "").toLowerCase().includes(searchQuery) ||
+            getComments(h).some(c => c.text.toLowerCase().includes(searchQuery)) ||
+            h._url.toLowerCase().includes(searchQuery)
+          );
+        }
+
+        const hasActiveFilters = filterLabel || filterAuthor || filterRoomDomain || searchQuery;
+
+        if (flat.length === 0) {
+          content.innerHTML = renderRoomHeader() + `<div class="empty-state"><div class="empty-icon">${SVG_HIGHLIGHTER}</div><h3>${hasActiveFilters ? "No matching highlights" : "No highlights in this room"}</h3><p>${hasActiveFilters ? "Try adjusting your filters." : "Highlights made in this room will appear here."}</p></div>`;
           wireRoomSettings(content);
           return;
         }
 
+        // Sort newest first, then group by URL
+        flat.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        const grouped = {};
+        for (const h of flat) {
+          if (!grouped[h._url]) grouped[h._url] = [];
+          grouped[h._url].push(h);
+        }
+
         let html = renderRoomHeader();
 
-        for (const urlHash of urlHashes) {
-          const decodedUrl = decodeUrlKey(urlHash);
-          const highlights = roomHighlights[urlHash];
-          if (!highlights || typeof highlights !== "object") continue;
-          const entries = Object.entries(highlights);
-          if (entries.length === 0) continue;
-
-          html += `<div class="group-header"><h3>${escapeHTML(decodedUrl)}</h3><span class="group-count">${entries.length}</span></div>`;
-          for (const [id, hl] of entries) {
+        for (const [pageUrl, items] of Object.entries(grouped)) {
+          const safeUrl = escapeAttr(pageUrl);
+          html += `<div class="group-header"><h3><a href="${safeUrl}" target="_blank" class="room-group-link">${escapeHTML(pageUrl)}</a></h3><span class="group-count">${items.length}</span></div>`;
+          for (const hl of items) {
             const date = hl.createdAt ? new Date(hl.createdAt).toLocaleString() : "";
             const authorChip = hl._authorName
-              ? `${avatarHTML(hl._authorName, 14)} <span class="card-author-name">${escapeHTML(hl._authorName)}</span>`
+              ? `<span class="card-author">${avatarHTML(hl._authorName, 14)} ${escapeHTML(hl._authorName)}</span>`
+              : "";
+            const roomLabelChip = hl.label
+              ? (() => {
+                  const lb = cachedLabels[hl.label];
+                  const lbName = lb ? escapeHTML(lb.name) : escapeHTML(hl.label);
+                  const lbColor = lb ? lb.color : "#71717a";
+                  return `<span class="card-label" style="--lb-color:${lbColor}"><span class="card-label-dot" style="background:${lbColor}"></span>${lbName}</span>`;
+                })()
               : "";
             html += `
-              <div class="highlight-card room-card" data-id="${escapeAttr(id)}">
+              <div class="highlight-card room-card" data-id="${escapeAttr(hl._id)}" data-url="${safeUrl}">
                 <div class="card-body">
                   <div class="card-text">${escapeHTML(hl.text || "")}</div>
-                  ${hl.note ? `<div class="card-note">${escapeHTML(hl.note)}</div>` : ""}
+                  ${renderCommentsPreview(hl)}
                   <div class="card-meta">
+                    <a href="${safeUrl}" target="_blank" title="${safeUrl}">${escapeHTML(pageUrl)}</a>
+                    ${roomLabelChip}
                     ${authorChip}
                     <span>${date}</span>
                   </div>
+                </div>
+                <div class="card-actions">
+                  <button class="card-action-btn" data-action="copy-link" title="Copy link">${SVG_COPY}</button>
+                  <button class="card-action-btn" data-action="visit" title="Visit page">${SVG_LINK}</button>
                 </div>
               </div>
             `;
@@ -792,9 +1005,28 @@
 
         content.innerHTML = html;
         wireRoomSettings(content);
+        wireRoomCardActions(content);
       }
     );
   }
+
+  function wireRoomCardActions(container) {
+    container.querySelectorAll(".room-card .card-action-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const card = btn.closest(".highlight-card");
+        const url = card.dataset.url;
+        if (btn.dataset.action === "visit") {
+          window.open(url, "_blank");
+        } else if (btn.dataset.action === "copy-link") {
+          navigator.clipboard.writeText(url).then(() => toast("Link copied!"));
+        }
+      });
+    });
+  }
+
+  const SVG_SETTINGS = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  const SVG_CHEVRON = `<svg class="room-accordion-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+  const SVG_KEY = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>`;
 
   function renderRoomHeader() {
     const room = selectedRoom;
@@ -802,33 +1034,58 @@
     const roleColors = { viewer: "#868e96", commentor: "#51cf66", editor: "#ffe066" };
     const roleColor = roleColors[room.role] || "#868e96";
 
-    let presenceHTML = '<div class="room-header-viewers" id="roomViewPresence"></div>';
-
     let settingsHTML = "";
     if (isEditor) {
       settingsHTML = `
-        <div class="room-settings" id="roomSettingsPanel">
-          <div class="room-settings-header">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-            Room Settings
-          </div>
-          <div class="room-settings-row">
-            <label>Room Name</label>
-            <div class="room-settings-inline">
-              <input type="text" id="roomNameInput" class="room-settings-input" value="${escapeAttr(room.packName || "")}" />
-              <button class="room-settings-btn" id="btnSaveRoomName">Save</button>
+        <div class="room-accordion">
+          <button class="room-accordion-toggle" id="toggleSettings">
+            <span class="room-accordion-left">${SVG_SETTINGS} Settings</span>
+            ${SVG_CHEVRON}
+          </button>
+          <div class="room-accordion-body" id="roomSettingsBody" style="display:none">
+            <div class="room-settings-row">
+              <label>Room Name</label>
+              <div class="room-settings-inline">
+                <input type="text" id="roomNameInput" class="room-settings-input" value="${escapeAttr(room.packName || "")}" />
+                <button class="room-settings-btn" id="btnSaveRoomName">Save</button>
+              </div>
             </div>
-          </div>
-          <div class="room-settings-row">
-            <label>Default Role</label>
-            <select id="roomDefaultRole" class="room-settings-select">
-              <option value="viewer"${room.role === "viewer" ? " selected" : ""}>Viewer (read only)</option>
-              <option value="commentor">Commentor (annotate)</option>
-              <option value="editor">Editor (full access)</option>
-            </select>
-          </div>
-          <div class="room-settings-row">
-            <button class="room-settings-btn danger" id="btnDeleteRoom">Delete Room</button>
+            <div class="room-settings-row">
+              <label>Default Role</label>
+              <select id="roomDefaultRole" class="room-settings-select">
+                <option value="viewer">Viewer (read only)</option>
+                <option value="commentor">Commentor (annotate)</option>
+                <option value="editor">Editor (full access)</option>
+              </select>
+            </div>
+            <div class="room-settings-row">
+              <label>Labels</label>
+              <div class="label-manager" id="labelManager">
+                <div class="label-list" id="labelList"></div>
+                <div class="label-add-row">
+                  <input type="text" id="newLabelName" class="room-settings-input" placeholder="Label name" />
+                  <input type="color" id="newLabelColor" class="label-color-picker" value="#3b82f6" />
+                  <button class="room-settings-btn" id="btnAddLabel">Add</button>
+                </div>
+              </div>
+            </div>
+            <div class="room-settings-row">
+              <label>Access Keys</label>
+              <div class="key-manager" id="keyManager">
+                <div class="key-list" id="keyList"></div>
+                <div class="key-add-row">
+                  <select id="newKeyRole" class="room-settings-select key-role-select">
+                    <option value="viewer">Viewer</option>
+                    <option value="commentor">Commentor</option>
+                    <option value="editor">Editor</option>
+                  </select>
+                  <button class="room-settings-btn" id="btnAddKey">${SVG_KEY} Add Key</button>
+                </div>
+              </div>
+            </div>
+            <div class="room-settings-row room-settings-danger-row">
+              <button class="room-settings-btn danger" id="btnDeleteRoom">Delete Room</button>
+            </div>
           </div>
         </div>
       `;
@@ -836,12 +1093,14 @@
 
     return `
       <div class="room-header">
-        <div class="room-header-info">
-          <span class="room-header-name">${escapeHTML(room.packName || room.packKey)}</span>
-          <code class="room-header-key">${escapeHTML(room.packKey)}</code>
-          <span class="room-header-role" style="color:${roleColor};border-color:${roleColor}">${room.role}</span>
+        <div class="room-header-top">
+          <div class="room-header-info">
+            <span class="room-header-name">${escapeHTML(room.packName || room.packKey)}</span>
+            <code class="room-header-key">${escapeHTML(room.packKey)}</code>
+            <span class="room-header-role" style="color:${roleColor};border-color:${roleColor}">${room.role}</span>
+          </div>
+          <div class="room-header-viewers" id="roomViewPresence"></div>
         </div>
-        ${presenceHTML}
         ${settingsHTML}
       </div>
     `;
@@ -851,6 +1110,17 @@
     if (!selectedRoom) return;
 
     loadRoomViewPresence();
+
+    // Accordion toggle
+    const toggleBtn = container.querySelector("#toggleSettings");
+    if (toggleBtn) {
+      toggleBtn.addEventListener("click", () => {
+        const body = container.querySelector("#roomSettingsBody");
+        const open = body.style.display !== "none";
+        body.style.display = open ? "none" : "";
+        toggleBtn.classList.toggle("open", !open);
+      });
+    }
 
     const saveBtn = container.querySelector("#btnSaveRoomName");
     if (saveBtn) {
@@ -879,15 +1149,10 @@
 
     const roleSelect = container.querySelector("#roomDefaultRole");
     if (roleSelect) {
-      chrome.runtime.sendMessage(
-        { action: "get-room-presence", firebaseUrl: selectedRoom.firebaseUrl, packKey: selectedRoom.packKey },
-        () => {
-          const metaUrl = `${selectedRoom.firebaseUrl}/packs/${selectedRoom.packKey}/meta.json`;
-          fetch(metaUrl).then(r => r.json()).then(meta => {
-            if (meta && meta.defaultRole) roleSelect.value = meta.defaultRole;
-          }).catch(() => {});
-        }
-      );
+      const metaUrl = `${selectedRoom.firebaseUrl}/packs/${selectedRoom.packKey}/meta.json`;
+      fetch(metaUrl).then(r => r.json()).then(meta => {
+        if (meta && meta.defaultRole) roleSelect.value = meta.defaultRole;
+      }).catch(() => {});
       roleSelect.addEventListener("change", () => {
         const newRole = roleSelect.value;
         chrome.runtime.sendMessage({
@@ -900,6 +1165,14 @@
           else toast(resp?.error || "Failed to update role");
         });
       });
+    }
+
+    if (container.querySelector("#labelList")) {
+      loadAndRenderLabels(container);
+    }
+
+    if (container.querySelector("#keyList")) {
+      loadAndRenderKeys(container);
     }
 
     const deleteBtn = container.querySelector("#btnDeleteRoom");
@@ -925,6 +1198,170 @@
         });
       });
     }
+  }
+
+  function loadAndRenderKeys(container) {
+    if (!selectedRoom) return;
+    chrome.runtime.sendMessage(
+      { action: "get-room-keys", firebaseUrl: selectedRoom.firebaseUrl, packKey: selectedRoom.packKey },
+      (keys) => {
+        const roomKeys = keys || {};
+        const listEl = container.querySelector("#keyList");
+        if (!listEl) return;
+
+        const roleColors = { viewer: "#868e96", commentor: "#51cf66", editor: "#ffe066" };
+
+        // Always show master key first
+        let html = `<div class="key-item key-item-master">
+          <div class="key-item-info">
+            <code class="key-item-code">${escapeHTML(selectedRoom.packKey)}</code>
+            <span class="key-item-role" style="color:${roleColors.editor}">editor</span>
+            <span class="key-item-tag">master</span>
+          </div>
+          <div class="key-item-actions">
+            <button class="key-copy-btn" data-key="${escapeAttr(selectedRoom.packKey)}" title="Copy key">${SVG_COPY}</button>
+          </div>
+        </div>`;
+
+        for (const [k, v] of Object.entries(roomKeys)) {
+          const rc = roleColors[v.role] || "#868e96";
+          html += `<div class="key-item" data-key-id="${escapeAttr(k)}">
+            <div class="key-item-info">
+              <code class="key-item-code">${escapeHTML(k)}</code>
+              <span class="key-item-role" style="color:${rc}">${escapeHTML(v.role)}</span>
+              ${v.label ? `<span class="key-item-label">${escapeHTML(v.label)}</span>` : ""}
+            </div>
+            <div class="key-item-actions">
+              <button class="key-copy-btn" data-key="${escapeAttr(k)}" title="Copy key">${SVG_COPY}</button>
+              <button class="key-delete-btn" data-key="${escapeAttr(k)}" title="Delete key">${SVG_TRASH}</button>
+            </div>
+          </div>`;
+        }
+
+        listEl.innerHTML = html;
+
+        listEl.querySelectorAll(".key-copy-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            navigator.clipboard.writeText(btn.dataset.key).then(() => toast("Key copied!"));
+          });
+        });
+
+        listEl.querySelectorAll(".key-delete-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const key = btn.dataset.key;
+            if (!confirm(`Delete invite key ${key}?`)) return;
+            chrome.runtime.sendMessage({
+              action: "delete-room-key",
+              firebaseUrl: selectedRoom.firebaseUrl,
+              packKey: selectedRoom.packKey,
+              key,
+            }, (resp) => {
+              if (resp?.ok) {
+                toast("Key deleted");
+                loadAndRenderKeys(container);
+              } else {
+                toast(resp?.error || "Failed to delete key");
+              }
+            });
+          });
+        });
+
+        const addBtn = container.querySelector("#btnAddKey");
+        const roleSelect = container.querySelector("#newKeyRole");
+        if (addBtn && !addBtn._wired) {
+          addBtn._wired = true;
+          addBtn.addEventListener("click", () => {
+            const role = roleSelect.value;
+            addBtn.disabled = true;
+            addBtn.textContent = "Creating…";
+            chrome.runtime.sendMessage({
+              action: "add-room-key",
+              firebaseUrl: selectedRoom.firebaseUrl,
+              packKey: selectedRoom.packKey,
+              role,
+            }, (resp) => {
+              addBtn.disabled = false;
+              addBtn.innerHTML = `${SVG_KEY} Add Key`;
+              if (resp?.ok) {
+                toast(`Key created: ${resp.key}`);
+                loadAndRenderKeys(container);
+              } else {
+                toast(resp?.error || "Failed to create key");
+              }
+            });
+          });
+        }
+      }
+    );
+  }
+
+  function loadAndRenderLabels(container) {
+    if (!selectedRoom) return;
+    chrome.runtime.sendMessage(
+      { action: "get-room-labels", firebaseUrl: selectedRoom.firebaseUrl, packKey: selectedRoom.packKey },
+      (labels) => {
+        const roomLabels = labels || {};
+        cachedLabels = roomLabels;
+        const listEl = container.querySelector("#labelList");
+        if (!listEl) return;
+
+        listEl.innerHTML = Object.entries(roomLabels).map(([id, lb]) =>
+          `<div class="label-item" data-label-id="${escapeAttr(id)}">
+            <span class="label-item-dot" style="background:${lb.color}"></span>
+            <span class="label-item-name">${escapeHTML(lb.name)}</span>
+            <button class="label-item-delete" title="Remove label">&times;</button>
+          </div>`
+        ).join("") || '<span class="label-empty">No labels defined</span>';
+
+        listEl.querySelectorAll(".label-item-delete").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const item = btn.closest(".label-item");
+            const id = item.dataset.labelId;
+            delete roomLabels[id];
+            saveRoomLabels(roomLabels, () => {
+              loadAndRenderLabels(container);
+            });
+          });
+        });
+
+        const addBtn = container.querySelector("#btnAddLabel");
+        const nameInput = container.querySelector("#newLabelName");
+        const colorInput = container.querySelector("#newLabelColor");
+        if (addBtn && !addBtn._wired) {
+          addBtn._wired = true;
+          addBtn.addEventListener("click", () => {
+            const name = nameInput.value.trim();
+            if (!name) { nameInput.focus(); return; }
+            const color = colorInput.value;
+            const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+            if (!id) return;
+            roomLabels[id] = { name, color };
+            nameInput.value = "";
+            saveRoomLabels(roomLabels, () => {
+              loadAndRenderLabels(container);
+            });
+          });
+        }
+      }
+    );
+  }
+
+  function saveRoomLabels(labels, callback) {
+    if (!selectedRoom) return;
+    chrome.runtime.sendMessage({
+      action: "set-room-labels",
+      firebaseUrl: selectedRoom.firebaseUrl,
+      packKey: selectedRoom.packKey,
+      labels,
+    }, (resp) => {
+      if (resp?.ok) {
+        cachedLabels = labels;
+        toast("Labels updated!");
+      } else {
+        toast("Failed to save labels");
+      }
+      if (callback) callback();
+    });
   }
 
   function loadRoomViewPresence() {

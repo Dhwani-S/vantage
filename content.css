@@ -33,20 +33,18 @@
 .cs-tooltip {
   position: absolute;
   z-index: 2147483647;
-  background: rgba(9, 9, 11, 0.85);
-  backdrop-filter: blur(20px) saturate(1.5);
-  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  background: #09090b;
   color: #e4e4e7;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 10px 12px;
-  min-width: 260px;
-  max-width: 340px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-width: 220px;
+  max-width: 300px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 13px;
-  line-height: 1.5;
-  animation: cs-fadeIn 0.15s ease;
+  font-size: 12px;
+  line-height: 1.4;
+  animation: cs-fadeIn 0.1s ease;
 }
 
 .cs-tooltip::before {
@@ -56,7 +54,7 @@
   left: 24px;
   width: 10px;
   height: 10px;
-  background: rgba(9, 9, 11, 0.85);
+  background: #09090b;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   transform: rotate(45deg);
@@ -67,28 +65,26 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+  gap: 4px;
 }
-
 .cs-tooltip-header-right {
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 0;
+  margin-left: auto;
 }
-.cs-tooltip-author {
+.cs-tp-author {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 10px;
   color: #a1a1aa;
-  margin-bottom: 6px;
-  padding: 2px 8px 2px 3px;
-  background: rgba(255,255,255,0.06);
-  border-radius: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.cs-tooltip-avatar {
+.cs-tooltip-avatar, .cs-comment-avatar {
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -101,13 +97,51 @@
   flex-shrink: 0;
 }
 
-.cs-tooltip-title {
-  font-size: 11px;
+/* ── Label Picker (inline) ────────────────────── */
+.cs-label-picker {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.cs-lp-dot {
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.12s;
+}
+.cs-lp-dot span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: block;
+}
+.cs-lp-dot:hover { border-color: rgba(255,255,255,0.3); }
+.cs-lp-dot.active { border-color: rgba(255,255,255,0.7); }
+.cs-lp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: #818cf8;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  color: var(--lb-color, #71717a);
+  padding: 1px 6px 1px 4px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 5px;
+}
+.cs-lp-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* ── Icon Buttons ────────────────────────────── */
@@ -115,12 +149,12 @@
   background: none;
   border: none;
   cursor: pointer;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 5px;
   transition: all 0.12s ease;
   padding: 0;
   color: #71717a;
@@ -133,86 +167,129 @@
   color: #f87171;
   background: rgba(248, 113, 113, 0.1);
 }
-.cs-icon-btn.cs-save:hover {
-  color: #34d399;
-  background: rgba(52, 211, 153, 0.1);
-}
 
-/* ── Textarea ────────────────────────────────── */
-.cs-tooltip textarea {
-  width: 100%;
-  min-height: 48px;
-  background: rgba(255, 255, 255, 0.04);
+/* ── Comment Thread ─────────────────────────── */
+.cs-comments-list {
+  max-height: 140px;
+  overflow-y: auto;
+  margin: 2px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.cs-comments-list::-webkit-scrollbar { width: 3px; }
+.cs-comments-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+.cs-comment-item {
+  padding: 3px 0;
+}
+.cs-comment-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #a1a1aa;
+  margin-bottom: 1px;
+}
+.cs-comment-who strong {
+  font-weight: 600;
+  color: #d4d4d8;
+}
+.cs-comment-time {
+  font-size: 9px;
+  color: #52525b;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  margin-left: 4px;
+}
+.cs-comment-text {
+  font-size: 12px;
+  color: #d4d4d8;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-left: 17px;
+}
+.cs-comment-input-row {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  margin-top: 3px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 4px;
+}
+.cs-comment-input {
+  flex: 1;
+  min-height: 26px;
+  max-height: 60px;
+  background: rgba(255,255,255,0.04);
   color: #e4e4e7;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 4px 8px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 12.5px;
-  line-height: 1.5;
-  resize: vertical;
+  font-size: 11.5px;
+  line-height: 1.35;
+  resize: none;
   box-sizing: border-box;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.12s ease;
 }
-.cs-tooltip textarea:focus {
-  border-color: rgba(129, 140, 248, 0.5);
-  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.1);
+.cs-comment-input:focus {
+  border-color: rgba(129,140,248,0.4);
 }
-.cs-tooltip textarea::placeholder {
-  color: #52525b;
+.cs-comment-input::placeholder { color: #52525b; font-size: 11px; }
+.cs-send-comment {
+  color: #818cf8 !important;
+  flex-shrink: 0;
 }
-.cs-tooltip textarea[readonly] {
-  opacity: 0.6;
-  cursor: default;
+.cs-send-comment:hover {
+  background: rgba(129,140,248,0.15) !important;
+  color: #a5b4fc !important;
 }
 
 /* ══════════════════════════════════════════════
-   ACTION BAR — Glassmorphism Dark (default)
+   ACTION BAR — Compact color dots
    ══════════════════════════════════════════════ */
 .cs-action-bar {
   position: absolute;
   z-index: 2147483646;
   display: flex;
   gap: 2px;
-  background: rgba(9, 9, 11, 0.88);
+  background: rgba(9, 9, 11, 0.96);
   backdrop-filter: blur(20px) saturate(1.5);
   -webkit-backdrop-filter: blur(20px) saturate(1.5);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 6px 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  animation: cs-fadeIn 0.1s ease;
+  border-radius: 20px;
+  padding: 4px 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  animation: cs-fadeIn 0.08s ease;
 }
 
 .cs-action-bar button {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 5px 7px;
-  border-radius: 6px;
-  transition: all 0.12s ease;
+  padding: 3px;
+  border-radius: 50%;
+  transition: transform 0.1s ease;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .cs-action-bar button:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: scale(1.1);
+  transform: scale(1.15);
 }
 
 .cs-color-dot {
   display: inline-block;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  border: 2px solid transparent;
+  border: none;
   cursor: pointer;
-  transition: all 0.12s ease;
-}
-.cs-color-dot:hover {
-  border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 0 8px currentColor;
+  transition: transform 0.1s ease;
 }
 
 /* ══════════════════════════════════════════════
@@ -220,21 +297,15 @@
    ══════════════════════════════════════════════ */
 
 .cs-tooltip.cs-light {
-  background: rgba(255, 255, 255, 0.88);
+  background: #ffffff;
   color: #18181b;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
 }
 .cs-tooltip.cs-light::before {
-  background: rgba(255, 255, 255, 0.88);
+  background: #ffffff;
   border-left: 1px solid rgba(0, 0, 0, 0.08);
   border-top: 1px solid rgba(0, 0, 0, 0.08);
-}
-.cs-tooltip.cs-light .cs-tooltip-header {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-.cs-tooltip.cs-light .cs-tooltip-title {
-  color: #6366f1;
 }
 .cs-tooltip.cs-light .cs-icon-btn {
   color: #a1a1aa;
@@ -247,30 +318,34 @@
   color: #ef4444;
   background: rgba(239, 68, 68, 0.08);
 }
-.cs-tooltip.cs-light .cs-icon-btn.cs-save:hover {
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.08);
+.cs-tooltip.cs-light .cs-tp-author {
+  color: #71717a;
 }
-.cs-tooltip.cs-light textarea {
-  background: rgba(0, 0, 0, 0.03);
+.cs-tooltip.cs-light .cs-comment-who strong { color: #27272a; }
+.cs-tooltip.cs-light .cs-comment-time { color: #a1a1aa; }
+.cs-tooltip.cs-light .cs-comment-text { color: #3f3f46; }
+.cs-tooltip.cs-light .cs-comment-input {
+  background: rgba(0,0,0,0.03);
   color: #18181b;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0,0,0,0.08);
 }
-.cs-tooltip.cs-light textarea:focus {
-  border-color: rgba(99, 102, 241, 0.4);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.08);
+.cs-tooltip.cs-light .cs-comment-input:focus {
+  border-color: rgba(99,102,241,0.4);
 }
-.cs-tooltip.cs-light textarea::placeholder {
-  color: #a1a1aa;
+.cs-tooltip.cs-light .cs-comment-input::placeholder { color: #a1a1aa; }
+.cs-tooltip.cs-light .cs-comment-input-row {
+  border-top-color: rgba(0,0,0,0.06);
+}
+.cs-tooltip.cs-light .cs-lp-dot:hover { border-color: rgba(0,0,0,0.2); }
+.cs-tooltip.cs-light .cs-lp-dot.active { border-color: rgba(0,0,0,0.5); }
+.cs-tooltip.cs-light .cs-lp-badge {
+  background: rgba(0,0,0,0.04);
 }
 
 .cs-action-bar.cs-light {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.97);
   border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-}
-.cs-action-bar.cs-light button:hover {
-  background: rgba(0, 0, 0, 0.04);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
 @keyframes cs-fadeIn {
@@ -352,6 +427,30 @@
   font-size: 10px;
   padding: 1px 4px;
 }
+/* ── Presence: Light Theme ────────────────── */
+.vantage-presence.vp-light {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #71717a;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+.vp-light .vp-count {
+  color: #18181b;
+}
+.vp-light .vp-label {
+  color: #a1a1aa;
+}
+.vp-light .vp-names {
+  border-left-color: rgba(0,0,0,0.08);
+}
+.vp-light .vp-name {
+  background: rgba(0,0,0,0.05);
+  color: #27272a;
+}
+.vp-light .vp-overflow {
+  color: #a1a1aa;
+}
+
 @keyframes v-presence-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

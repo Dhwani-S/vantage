@@ -420,6 +420,26 @@ body {
   font-weight: 600;
   color: var(--v-text);
 }
+.cloud-pack-name.editable {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--v-border);
+  transition: border-color 0.15s ease;
+}
+.cloud-pack-name.editable:hover {
+  border-color: var(--v-accent);
+}
+.cloud-name-input {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--v-text);
+  background: var(--v-surface);
+  border: 1px solid var(--v-accent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  outline: none;
+  width: 120px;
+  font-family: inherit;
+}
 
 .cloud-key-row {
   display: flex;

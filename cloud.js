@@ -29,7 +29,9 @@ class CloudSync {
     this._subscribedUrlHash = null;
     this._knownIds = new Set();
     this._activeViewers = {};
+    this._roomLabels = {};
     this._sessionReady = this._loadSessionId();
+    this._nameReady = Promise.resolve();
   }
 
   _loadSessionId() {
@@ -65,6 +67,24 @@ class CloudSync {
     this._packKey = packKey || "";
     this._role = role || CloudSync.ROLES.VIEWER;
     this._userName = userName || "Anonymous";
+    this._nameReady = this._resolveMyName();
+  }
+
+  async _resolveMyName() {
+    await this._sessionReady;
+    if (!this._firebaseUrl || !this._packKey) return;
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { action: "get-my-name", firebaseUrl: this._firebaseUrl, packKey: this._packKey },
+          (resp) => {
+            if (chrome.runtime.lastError) { resolve(); return; }
+            if (resp && resp.name) this._userName = resp.name;
+            resolve();
+          }
+        );
+      } catch { resolve(); }
+    });
   }
 
   get instanceId() {
@@ -89,6 +109,26 @@ class CloudSync {
 
   get role() {
     return this._role;
+  }
+
+  get roomLabels() {
+    return { ...this._roomLabels };
+  }
+
+  async fetchLabels() {
+    if (!this.isConfigured) return {};
+    try {
+      const resp = await new Promise(resolve => {
+        chrome.runtime.sendMessage(
+          { action: "get-room-labels", firebaseUrl: this._firebaseUrl, packKey: this._packKey },
+          resolve
+        );
+      });
+      this._roomLabels = resp && typeof resp === "object" ? resp : {};
+    } catch {
+      this._roomLabels = {};
+    }
+    return this._roomLabels;
   }
 
   /* ════════════════════════════════════════════
@@ -177,7 +217,7 @@ class CloudSync {
 
   async pushHighlight(highlight) {
     if (!this.isConfigured) return;
-    await this._sessionReady;
+    await this._nameReady;
     const urlHash = CloudSync.encodeUrlKey(highlight.url);
     const payload = {
       ...highlight,
@@ -220,12 +260,13 @@ class CloudSync {
      SSE SUBSCRIPTION (real-time streaming)
      ════════════════════════════════════════════ */
 
-  subscribeToUrl(url, onHighlight, onDelete) {
+  subscribeToUrl(url, onHighlight, onDelete, onUpdate) {
     this.unsubscribe();
     if (!this.isConfigured) return;
 
     this._onHighlight = onHighlight;
     this._onDelete = onDelete;
+    this._onUpdate = onUpdate || null;
     const urlHash = CloudSync.encodeUrlKey(url);
     this._subscribedUrlHash = urlHash;
 
@@ -261,7 +302,7 @@ class CloudSync {
 
   async announcePresence(pageUrl) {
     if (!this.isConfigured) return;
-    await this._sessionReady;
+    await this._nameReady;
     const payload = {
       name: this._userName,
       role: this._role,
@@ -282,7 +323,7 @@ class CloudSync {
 
   async removePresence() {
     if (!this.isConfigured) return;
-    await this._sessionReady;
+    await this._nameReady;
     try {
       chrome.runtime.sendMessage({
         action: "remove-presence",
@@ -386,29 +427,27 @@ class CloudSync {
     }
 
     if (path === "/") {
-      // Initial load or full replacement — data is { id: highlight, ... }
       if (typeof data === "object") {
         for (const [id, hl] of Object.entries(data)) {
-          if (this._shouldAccept(id, hl)) {
+          if (hl._author === this.presenceId) continue;
+          if (this._knownIds.has(id)) {
+            if (this._onUpdate) this._onUpdate(hl);
+          } else {
             this._knownIds.add(id);
             if (this._onHighlight) this._onHighlight(hl);
           }
         }
       }
     } else {
-      // Single highlight added/updated — path is "/{highlightId}"
       const id = path.split("/").filter(Boolean).pop();
-      if (id && this._shouldAccept(id, data)) {
+      if (!id || data._author === this.presenceId) return;
+      if (this._knownIds.has(id)) {
+        if (this._onUpdate) this._onUpdate(data);
+      } else {
         this._knownIds.add(id);
         if (this._onHighlight) this._onHighlight(data);
       }
     }
-  }
-
-  _shouldAccept(id, highlight) {
-    if (this._knownIds.has(id)) return false;
-    if (highlight._author === this.presenceId) return false;
-    return true;
   }
 
   /* ════════════════════════════════════════════
