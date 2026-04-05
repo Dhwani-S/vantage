@@ -912,8 +912,9 @@
     closeActionBar();
     closeTooltip();
 
-    // Re-subscribe SSE to the new URL
+    // Re-subscribe SSE to the new URL and fetch existing cloud highlights
     if (cloudSync && cloudSync.isConfigured) {
+      fetchAndMergeCloudHighlights();
       cloudSubscribeCurrentUrl();
     }
 
@@ -1005,7 +1006,36 @@
     cloudSync.configure(config.firebaseUrl, config.packKey, config.role || "viewer");
     console.log("[Vantage] Cloud sync active — pack:", config.packKey, "role:", config.role);
 
+    // Proactively fetch existing highlights for this URL from Firebase
+    fetchAndMergeCloudHighlights();
+
     cloudSubscribeCurrentUrl();
+  }
+
+  async function fetchAndMergeCloudHighlights() {
+    if (!cloudSync || !cloudSync.isConfigured) return;
+    const url = getCurrentUrl();
+    try {
+      const remote = await cloudSync.fetchAllHighlightsForUrl(url);
+      if (!remote || typeof remote !== "object") return;
+      let added = 0;
+      for (const [id, hl] of Object.entries(remote)) {
+        if (highlights.find(h => h.id === id)) continue;
+        const { _author, ...clean } = hl;
+        clean._cloud = true;
+        highlights.push(clean);
+        cloudSync._knownIds.add(id);
+        added++;
+        tryPaintCloudHighlight(hl);
+      }
+      if (added > 0) {
+        saveHighlights();
+        scheduleCloudRepaint();
+        console.log(`[Vantage] Fetched ${added} existing cloud highlights`);
+      }
+    } catch (err) {
+      console.warn("[Vantage] Cloud fetch failed:", err);
+    }
   }
 
   function cloudSubscribeCurrentUrl() {
@@ -1026,45 +1056,22 @@
         // Skip if already painted locally
         if (document.querySelector(`[data-cs-id="${remoteHighlight.id}"]`)) return;
 
-        // Paint it on the page
-        let painted = false;
-        try {
-          if (remoteHighlight.anchor) {
-            const startNode = resolveXPath(remoteHighlight.anchor.startContainerXPath);
-            const endNode = resolveXPath(remoteHighlight.anchor.endContainerXPath);
-            if (startNode && endNode) {
-              const range = document.createRange();
-              range.setStart(startNode, remoteHighlight.anchor.startOffset);
-              range.setEnd(endNode, remoteHighlight.anchor.endOffset);
-              const rangeText = range.toString().trim();
-              if (rangeText && (rangeText === remoteHighlight.text || remoteHighlight.text.includes(rangeText) || rangeText.includes(remoteHighlight.text))) {
-                wrapRange(range, remoteHighlight.id, remoteHighlight.color || "yellow");
-                painted = true;
-              }
-            }
-          }
-        } catch {}
-
-        if (!painted && remoteHighlight.text) {
-          const range = findTextInDOM(remoteHighlight.text);
-          if (range) {
-            wrapRange(range, remoteHighlight.id, remoteHighlight.color || "yellow");
-            painted = true;
-          }
+        // Always save to local cache first so the dashboard sees it
+        const existing = highlights.find(h => h.id === remoteHighlight.id);
+        if (!existing) {
+          const { _author, ...clean } = remoteHighlight;
+          clean._cloud = true;
+          highlights.push(clean);
+          saveHighlights();
         }
 
+        // Then try to paint
+        const painted = tryPaintCloudHighlight(remoteHighlight);
         if (painted) {
-          // Add to local cache so it persists
-          const existing = highlights.find(h => h.id === remoteHighlight.id);
-          if (!existing) {
-            const { _author, ...clean } = remoteHighlight;
-            clean._cloud = true;
-            highlights.push(clean);
-            saveHighlights();
-          }
           console.log("[Vantage] Cloud highlight painted:", remoteHighlight.text?.slice(0, 40));
         } else {
-          console.log("[Vantage] Cloud highlight could not be painted:", remoteHighlight.text?.slice(0, 40));
+          console.log("[Vantage] Cloud highlight saved, paint deferred:", remoteHighlight.text?.slice(0, 40));
+          scheduleCloudRepaint();
         }
       },
       (deletedId) => {
@@ -1072,6 +1079,54 @@
         removeHighlight(deletedId);
       }
     );
+  }
+
+  function tryPaintCloudHighlight(hl) {
+    if (document.querySelector(`[data-cs-id="${hl.id}"]`)) return true;
+    try {
+      if (hl.anchor) {
+        const startNode = resolveXPath(hl.anchor.startContainerXPath);
+        const endNode = resolveXPath(hl.anchor.endContainerXPath);
+        if (startNode && endNode) {
+          const range = document.createRange();
+          range.setStart(startNode, hl.anchor.startOffset);
+          range.setEnd(endNode, hl.anchor.endOffset);
+          const rangeText = range.toString().trim();
+          if (rangeText && (rangeText === hl.text || hl.text.includes(rangeText) || rangeText.includes(hl.text))) {
+            wrapRange(range, hl.id, hl.color || "yellow");
+            return true;
+          }
+        }
+      }
+    } catch {}
+    if (hl.text) {
+      const range = findTextInDOM(hl.text);
+      if (range) {
+        wrapRange(range, hl.id, hl.color || "yellow");
+        return true;
+      }
+    }
+    return false;
+  }
+
+  let _cloudRepaintTimer = null;
+  function scheduleCloudRepaint() {
+    if (_cloudRepaintTimer) return;
+    let attempts = 0;
+    const maxAttempts = 15;
+    _cloudRepaintTimer = setInterval(() => {
+      attempts++;
+      const url = getCurrentUrl();
+      const unpainted = highlights.filter(h =>
+        h._cloud && normalizeUrl(h.url) === url && !document.querySelector(`[data-cs-id="${h.id}"]`)
+      );
+      if (unpainted.length === 0 || attempts >= maxAttempts) {
+        clearInterval(_cloudRepaintTimer);
+        _cloudRepaintTimer = null;
+        return;
+      }
+      for (const h of unpainted) tryPaintCloudHighlight(h);
+    }, 1500);
   }
 
   /* ════════════════════════════════════════════
