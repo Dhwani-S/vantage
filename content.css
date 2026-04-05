@@ -77,6 +77,29 @@
   align-items: center;
   gap: 1px;
 }
+.cs-tooltip-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #a1a1aa;
+  margin-bottom: 6px;
+  padding: 2px 8px 2px 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 8px;
+}
+.cs-tooltip-avatar {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
 
 .cs-tooltip-title {
   font-size: 11px;
@@ -302,12 +325,27 @@
   padding-left: 8px;
 }
 .vp-name {
-  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 2px;
   font-size: 10px;
   background: rgba(255,255,255,0.08);
   border-radius: 8px;
   color: #e4e4e7;
   white-space: nowrap;
+}
+.vp-avatar {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
 }
 .vp-overflow {
   color: #71717a;

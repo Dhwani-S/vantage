@@ -267,6 +267,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // ── Presence Count ──────────────────────────
+  const _nameColorHex = {
+    Amber: "#f59e0b", Azure: "#3b82f6", Coral: "#f97316", Cyan: "#06b6d4",
+    Ember: "#ef4444", Jade: "#10b981", Lime: "#84cc16", Mint: "#34d399",
+    Navy: "#1e40af", Onyx: "#71717a", Pearl: "#e2e8f0", Rose: "#f43f5e",
+    Ruby: "#dc2626", Sage: "#94a3b8", Slate: "#64748b", Teal: "#14b8a6",
+    Violet: "#8b5cf6", Zinc: "#a1a1aa",
+  };
+
+  function avatarChip(name) {
+    const parts = (name || "Anonymous").split(" ");
+    const adjective = parts[0] || "";
+    const animal = parts[1] || parts[0] || "?";
+    const color = _nameColorHex[adjective] || "#71717a";
+    const initial = animal.charAt(0).toUpperCase();
+    return `<span class="viewer-chip"><span class="viewer-avatar" style="background:${color}">${esc(initial)}</span>${esc(name)}</span>`;
+  }
+
   let _presencePoller = null;
   function loadPresenceCount(config) {
     if (!config || !config.firebaseUrl || !config.packKey) return;
@@ -280,9 +297,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
           const namesEl = document.getElementById("viewerNames");
           if (namesEl && entries.length > 0) {
-            namesEl.innerHTML = entries
-              .map(v => `<span class="viewer-chip">${esc(v.name || "Anonymous")}</span>`)
-              .join("");
+            namesEl.innerHTML = entries.map(v => avatarChip(v.name)).join("");
           } else if (namesEl) {
             namesEl.innerHTML = "";
           }

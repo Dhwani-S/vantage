@@ -664,6 +664,14 @@
     const rect = highlightEl.getBoundingClientRect();
     const tooltip = document.createElement("div");
     tooltip.className = `cs-tooltip${currentTheme === "light" ? " cs-light" : ""}`;
+    const authorHtml = record._authorName
+      ? (() => {
+          const p = record._authorName.split(" ");
+          const col = ({Amber:"#f59e0b",Azure:"#3b82f6",Coral:"#f97316",Cyan:"#06b6d4",Ember:"#ef4444",Jade:"#10b981",Lime:"#84cc16",Mint:"#34d399",Navy:"#1e40af",Onyx:"#71717a",Pearl:"#e2e8f0",Rose:"#f43f5e",Ruby:"#dc2626",Sage:"#94a3b8",Slate:"#64748b",Teal:"#14b8a6",Violet:"#8b5cf6",Zinc:"#a1a1aa"})[p[0]] || "#71717a";
+          const ini = (p[1]||p[0]||"?").charAt(0);
+          return `<span class="cs-tooltip-author"><span class="cs-tooltip-avatar" style="background:${col}">${ini}</span>${record._authorName}</span>`;
+        })()
+      : "";
     tooltip.innerHTML = `
       <div class="cs-tooltip-header">
         <span class="cs-tooltip-title">Note${isViewerRole ? " (read-only)" : ""}</span>
@@ -674,6 +682,7 @@
           <button class="cs-icon-btn cs-tooltip-close" title="Close">${IC.close}</button>
         </div>
       </div>
+      ${authorHtml}
       <textarea placeholder="${isViewerRole ? "View only" : "Add a note…"}"${isViewerRole ? " readonly" : ""}>${record.note || ""}</textarea>
     `;
 
@@ -1037,11 +1046,21 @@
       document.body.appendChild(indicator);
     }
 
+    const _colorHex = {
+      Amber:"#f59e0b",Azure:"#3b82f6",Coral:"#f97316",Cyan:"#06b6d4",
+      Ember:"#ef4444",Jade:"#10b981",Lime:"#84cc16",Mint:"#34d399",
+      Navy:"#1e40af",Onyx:"#71717a",Pearl:"#e2e8f0",Rose:"#f43f5e",
+      Ruby:"#dc2626",Sage:"#94a3b8",Slate:"#64748b",Teal:"#14b8a6",
+      Violet:"#8b5cf6",Zinc:"#a1a1aa",
+    };
     const names = others.map(([, v]) => v.name || "Anonymous");
     const overflow = names.length > 3 ? ` +${names.length - 3}` : "";
-    const nameChips = names.slice(0, 3).map(n =>
-      `<span class="vp-name">${n}</span>`
-    ).join("") + (overflow ? `<span class="vp-overflow">${overflow}</span>` : "");
+    const nameChips = names.slice(0, 3).map(n => {
+      const parts = n.split(" ");
+      const color = _colorHex[parts[0]] || "#71717a";
+      const initial = (parts[1] || parts[0] || "?").charAt(0);
+      return `<span class="vp-name"><span class="vp-avatar" style="background:${color}">${initial}</span>${n}</span>`;
+    }).join("") + (overflow ? `<span class="vp-overflow">${overflow}</span>` : "");
 
     indicator.innerHTML = `
       <span class="vp-dot"></span>
@@ -1106,6 +1125,7 @@
         if (!existing) {
           const { _author, ...clean } = remoteHighlight;
           clean._cloud = true;
+          if (!clean._authorName) delete clean._authorName;
           highlights.push(clean);
           saveHighlights();
         }

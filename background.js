@@ -62,59 +62,77 @@ function generateAnonName() {
 }
 
 /* ════════════════════════════════════════════
-   PRESENCE + IDENTITY HELPERS
+   AVATAR COLOR MAP (adjective → hex)
    ════════════════════════════════════════════ */
-function getOrCreateInstanceId(callback) {
-  chrome.storage.local.get("vantageInstanceId", (data) => {
-    if (data.vantageInstanceId) {
-      callback(data.vantageInstanceId);
+const NAME_COLOR_HEX = {
+  Amber: "#f59e0b", Azure: "#3b82f6", Coral: "#f97316", Cyan: "#06b6d4",
+  Ember: "#ef4444", Jade: "#10b981", Lime: "#84cc16", Mint: "#34d399",
+  Navy: "#1e40af", Onyx: "#71717a", Pearl: "#e2e8f0", Rose: "#f43f5e",
+  Ruby: "#dc2626", Sage: "#94a3b8", Slate: "#64748b", Teal: "#14b8a6",
+  Violet: "#8b5cf6", Zinc: "#a1a1aa",
+};
+
+/* ════════════════════════════════════════════
+   PER-WINDOW SESSION IDS
+   Uses chrome.storage.session (survives SW restarts,
+   clears on browser close). Each Chrome window gets
+   its own stable session ID.
+   ════════════════════════════════════════════ */
+async function getWindowSessionId(windowId) {
+  const key = `winsession_${windowId}`;
+  const data = await chrome.storage.session.get(key);
+  if (data[key]) return data[key];
+  const sid = "ws-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  await chrome.storage.session.set({ [key]: sid });
+  return sid;
+}
+
+function resolveWindowId(sender) {
+  return new Promise(resolve => {
+    if (sender?.tab?.windowId !== undefined) {
+      resolve(sender.tab.windowId);
     } else {
-      const id = "v-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      chrome.storage.local.set({ vantageInstanceId: id }, () => callback(id));
+      chrome.windows.getLastFocused(win => resolve(win.id));
     }
   });
 }
 
-function assignRoomName(firebaseUrl, packKey, callback) {
-  getOrCreateInstanceId((instanceId) => {
-    const memberUrl = `${firebaseUrl}/packs/${packKey}/members/${instanceId}.json`;
-    fetch(memberUrl, { headers: { "Content-Type": "application/json" } })
-      .then(resp => resp.ok ? resp.json() : null)
-      .then(existing => {
-        if (existing && existing.name) {
-          callback(existing.name, instanceId);
-        } else {
-          const name = generateAnonName();
-          const entry = { name, joinedAt: new Date().toISOString() };
-          fetch(memberUrl, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(entry),
-          })
-            .then(() => callback(name, instanceId))
-            .catch(() => callback(name, instanceId));
-        }
-      })
-      .catch(() => {
-        callback(generateAnonName(), instanceId);
-      });
-  });
+async function assignRoomName(firebaseUrl, packKey, windowId, callback) {
+  const sessionId = await getWindowSessionId(windowId);
+  const memberUrl = `${firebaseUrl}/packs/${packKey}/members/${sessionId}.json`;
+  try {
+    const resp = await fetch(memberUrl);
+    const existing = resp.ok ? await resp.json() : null;
+    if (existing && existing.name) {
+      callback(existing.name, sessionId);
+    } else {
+      const name = generateAnonName();
+      const entry = { name, joinedAt: new Date().toISOString() };
+      await fetch(memberUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
+      }).catch(() => {});
+      callback(name, sessionId);
+    }
+  } catch {
+    callback(generateAnonName(), sessionId);
+  }
 }
 
-function writePresenceFromBg(firebaseUrl, packKey, role, userName) {
-  getOrCreateInstanceId((instanceId) => {
-    const payload = {
-      name: userName || "Anonymous",
-      role: role || "viewer",
-      url: "",
-      lastSeen: Date.now(),
-    };
-    fetch(`${firebaseUrl}/packs/${packKey}/presence/${instanceId}.json`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }).catch(() => {});
-  });
+async function writePresenceFromBg(firebaseUrl, packKey, role, userName, windowId) {
+  const sessionId = await getWindowSessionId(windowId);
+  const payload = {
+    name: userName || "Anonymous",
+    role: role || "viewer",
+    url: "",
+    lastSeen: Date.now(),
+  };
+  fetch(`${firebaseUrl}/packs/${packKey}/presence/${sessionId}.json`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
 }
 
 /* ════════════════════════════════════════════
@@ -194,21 +212,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       defaultRole: "commentor",
     };
 
-    fetch(`${url}/packs/${packKey}/meta.json`, {
-      method: "PUT",
-      body: JSON.stringify(meta),
-    })
-      .then(resp => {
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        assignRoomName(url, packKey, (userName) => {
-          const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor", userName };
-          chrome.storage.local.set({ cloudPack: config }, () => {
-            writePresenceFromBg(url, packKey, "editor", userName);
-            addToRoomHistory(config, () => sendResponse({ ok: true, config }));
-          });
-        });
+    resolveWindowId(sender).then(windowId => {
+      fetch(`${url}/packs/${packKey}/meta.json`, {
+        method: "PUT",
+        body: JSON.stringify(meta),
       })
-      .catch(err => sendResponse({ error: err.message }));
+        .then(resp => {
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          assignRoomName(url, packKey, windowId, (userName) => {
+            const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor", userName };
+            chrome.storage.local.set({ cloudPack: config }, () => {
+              writePresenceFromBg(url, packKey, "editor", userName, windowId);
+              addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+            });
+          });
+        })
+        .catch(err => sendResponse({ error: err.message }));
+    });
     return true;
   }
 
@@ -217,23 +237,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const url = (firebaseUrl || "").replace(/\/+$/, "");
     if (!url || !packKey) { sendResponse({ error: "Missing URL or key" }); return true; }
 
-    fetch(`${url}/packs/${packKey}/meta.json`)
-      .then(resp => {
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return resp.json();
-      })
-      .then(meta => {
-        if (!meta) throw new Error("Pack not found");
-        const role = meta.defaultRole || "viewer";
-        assignRoomName(url, packKey, (userName) => {
-          const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role, userName };
-          chrome.storage.local.set({ cloudPack: config }, () => {
-            writePresenceFromBg(url, packKey, role, userName);
-            addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+    resolveWindowId(sender).then(windowId => {
+      fetch(`${url}/packs/${packKey}/meta.json`)
+        .then(resp => {
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          return resp.json();
+        })
+        .then(meta => {
+          if (!meta) throw new Error("Pack not found");
+          const role = meta.defaultRole || "viewer";
+          assignRoomName(url, packKey, windowId, (userName) => {
+            const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role, userName };
+            chrome.storage.local.set({ cloudPack: config }, () => {
+              writePresenceFromBg(url, packKey, role, userName, windowId);
+              addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+            });
           });
-        });
-      })
-      .catch(err => sendResponse({ error: err.message }));
+        })
+        .catch(err => sendResponse({ error: err.message }));
+    });
     return true;
   }
 
@@ -242,23 +264,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const url = (firebaseUrl || "").replace(/\/+$/, "");
     if (!url || !packKey) { sendResponse({ error: "Missing URL or key" }); return true; }
 
-    fetch(`${url}/packs/${packKey}/meta.json`)
-      .then(resp => {
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return resp.json();
-      })
-      .then(meta => {
-        if (!meta) throw new Error("Room no longer exists");
-        const role = meta.defaultRole || "viewer";
-        assignRoomName(url, packKey, (userName) => {
-          const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role, userName };
-          chrome.storage.local.set({ cloudPack: config }, () => {
-            writePresenceFromBg(url, packKey, role, userName);
-            addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+    resolveWindowId(sender).then(windowId => {
+      fetch(`${url}/packs/${packKey}/meta.json`)
+        .then(resp => {
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          return resp.json();
+        })
+        .then(meta => {
+          if (!meta) throw new Error("Room no longer exists");
+          const role = meta.defaultRole || "viewer";
+          assignRoomName(url, packKey, windowId, (userName) => {
+            const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role, userName };
+            chrome.storage.local.set({ cloudPack: config }, () => {
+              writePresenceFromBg(url, packKey, role, userName, windowId);
+              addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+            });
           });
-        });
-      })
-      .catch(err => sendResponse({ error: err.message }));
+        })
+        .catch(err => sendResponse({ error: err.message }));
+    });
     return true;
   }
 
@@ -270,19 +294,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "set-default-role") {
-    chrome.storage.local.get("cloudPack", (data) => {
-      const config = data.cloudPack;
-      if (!config || config.role !== "editor") {
-        sendResponse({ error: "Only the pack editor can change roles" });
-        return;
-      }
-      const newRole = msg.role;
-      if (!["viewer", "commentor", "editor"].includes(newRole)) {
-        sendResponse({ error: "Invalid role" });
-        return;
-      }
-      const url = config.firebaseUrl;
-      fetch(`${url}/packs/${config.packKey}/meta/defaultRole.json`, {
+    const newRole = msg.role;
+    if (!["viewer", "commentor", "editor"].includes(newRole)) {
+      sendResponse({ error: "Invalid role" });
+      return true;
+    }
+    const fbUrl = msg.firebaseUrl;
+    const pk = msg.packKey;
+    if (fbUrl && pk) {
+      const url = fbUrl.replace(/\/+$/, "");
+      fetch(`${url}/packs/${pk}/meta/defaultRole.json`, {
         method: "PUT",
         body: JSON.stringify(newRole),
       })
@@ -291,7 +312,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, role: newRole });
         })
         .catch(err => sendResponse({ error: err.message }));
-    });
+    } else {
+      chrome.storage.local.get("cloudPack", (data) => {
+        const config = data.cloudPack;
+        if (!config || config.role !== "editor") {
+          sendResponse({ error: "Only the pack editor can change roles" });
+          return;
+        }
+        const url = config.firebaseUrl;
+        fetch(`${url}/packs/${config.packKey}/meta/defaultRole.json`, {
+          method: "PUT",
+          body: JSON.stringify(newRole),
+        })
+          .then(resp => {
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            sendResponse({ ok: true, role: newRole });
+          })
+          .catch(err => sendResponse({ error: err.message }));
+      });
+    }
     return true;
   }
 
@@ -314,6 +353,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const history = (data.roomHistory || []).filter(r => r.packKey !== msg.packKey);
       chrome.storage.local.set({ roomHistory: history }, () => sendResponse({ ok: true }));
     });
+    return true;
+  }
+
+  if (msg.action === "get-session-id") {
+    const windowId = sender?.tab?.windowId;
+    if (windowId === undefined) { sendResponse({ sessionId: null }); return true; }
+    getWindowSessionId(windowId).then(sessionId => sendResponse({ sessionId }));
+    return true;
+  }
+
+  if (msg.action === "get-name-colors") {
+    sendResponse(NAME_COLOR_HEX);
     return true;
   }
 
@@ -374,26 +425,91 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "write-presence") {
-    const { firebaseUrl, packKey, instanceId, payload } = msg;
+    const { firebaseUrl, packKey, payload } = msg;
+    const windowId = sender?.tab?.windowId;
+    if (windowId === undefined) { sendResponse({ ok: false }); return true; }
     const url = (firebaseUrl || "").replace(/\/+$/, "");
-    if (!url || !packKey || !instanceId) { sendResponse({ ok: false }); return true; }
-    fetch(`${url}/packs/${packKey}/presence/${instanceId}.json`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-      .then(resp => sendResponse({ ok: resp.ok }))
-      .catch(() => sendResponse({ ok: false }));
+    if (!url || !packKey) { sendResponse({ ok: false }); return true; }
+    getWindowSessionId(windowId).then(sessionId => {
+      fetch(`${url}/packs/${packKey}/presence/${sessionId}.json`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then(resp => sendResponse({ ok: resp.ok }))
+        .catch(() => sendResponse({ ok: false }));
+    });
     return true;
   }
 
   if (msg.action === "remove-presence") {
-    const { firebaseUrl, packKey, instanceId } = msg;
+    const { firebaseUrl, packKey } = msg;
+    const windowId = sender?.tab?.windowId;
+    if (windowId === undefined) { sendResponse({ ok: false }); return true; }
     const url = (firebaseUrl || "").replace(/\/+$/, "");
-    if (!url || !packKey || !instanceId) { sendResponse({ ok: false }); return true; }
-    fetch(`${url}/packs/${packKey}/presence/${instanceId}.json`, { method: "DELETE" })
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
+    if (!url || !packKey) { sendResponse({ ok: false }); return true; }
+    getWindowSessionId(windowId).then(sessionId => {
+      fetch(`${url}/packs/${packKey}/presence/${sessionId}.json`, { method: "DELETE" })
+        .then(() => sendResponse({ ok: true }))
+        .catch(() => sendResponse({ ok: false }));
+    });
+    return true;
+  }
+
+  if (msg.action === "update-room-name") {
+    const { firebaseUrl, packKey, newName } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey || !newName) { sendResponse({ ok: false }); return true; }
+    fetch(`${url}/packs/${packKey}/meta/name.json`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newName),
+    })
+      .then(resp => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        chrome.storage.local.get(["roomHistory", "cloudPack"], (data) => {
+          const history = (data.roomHistory || []).map(r =>
+            r.packKey === packKey ? { ...r, packName: newName } : r
+          );
+          const updates = { roomHistory: history };
+          if (data.cloudPack && data.cloudPack.packKey === packKey) {
+            updates.cloudPack = { ...data.cloudPack, packName: newName };
+          }
+          chrome.storage.local.set(updates, () => sendResponse({ ok: true }));
+        });
+      })
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === "delete-room") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({ ok: false }); return true; }
+    fetch(`${url}/packs/${packKey}.json`, { method: "DELETE" })
+      .then(resp => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        chrome.storage.local.get(["roomHistory", "cloudPack"], (data) => {
+          const history = (data.roomHistory || []).filter(r => r.packKey !== packKey);
+          const updates = { roomHistory: history };
+          if (data.cloudPack && data.cloudPack.packKey === packKey) {
+            updates.cloudPack = null;
+          }
+          chrome.storage.local.set(updates, () => sendResponse({ ok: true }));
+        });
+      })
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === "get-room-highlights") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({}); return true; }
+    fetch(`${url}/packs/${packKey}/highlights.json`)
+      .then(resp => resp.ok ? resp.json() : null)
+      .then(data => sendResponse(data || {}))
+      .catch(() => sendResponse({}));
     return true;
   }
 

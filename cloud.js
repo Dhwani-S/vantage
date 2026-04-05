@@ -18,7 +18,7 @@ class CloudSync {
     this._packKey = "";
     this._role = CloudSync.ROLES.VIEWER;
     this._instanceId = this._generateInstanceId();
-    this._sharedInstanceId = null;
+    this._sessionId = null;
     this._userName = "Anonymous";
     this._eventSource = null;
     this._presenceSource = null;
@@ -29,31 +29,31 @@ class CloudSync {
     this._subscribedUrlHash = null;
     this._knownIds = new Set();
     this._activeViewers = {};
-    this._sharedIdReady = this._loadSharedId();
+    this._sessionReady = this._loadSessionId();
   }
 
-  _loadSharedId() {
+  _loadSessionId() {
     return new Promise((resolve) => {
       try {
-        chrome.storage.local.get("vantageInstanceId", (data) => {
-          if (data.vantageInstanceId) {
-            this._sharedInstanceId = data.vantageInstanceId;
+        chrome.runtime.sendMessage({ action: "get-session-id" }, (resp) => {
+          if (chrome.runtime.lastError) {
+            this._sessionId = this._instanceId;
+          } else if (resp && resp.sessionId) {
+            this._sessionId = resp.sessionId;
           } else {
-            const id = "v-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-            this._sharedInstanceId = id;
-            chrome.storage.local.set({ vantageInstanceId: id });
+            this._sessionId = this._instanceId;
           }
           resolve();
         });
       } catch {
-        this._sharedInstanceId = this._instanceId;
+        this._sessionId = this._instanceId;
         resolve();
       }
     });
   }
 
   get presenceId() {
-    return this._sharedInstanceId || this._instanceId;
+    return this._sessionId || this._instanceId;
   }
 
   /* ════════════════════════════════════════════
@@ -177,11 +177,12 @@ class CloudSync {
 
   async pushHighlight(highlight) {
     if (!this.isConfigured) return;
-    await this._sharedIdReady;
+    await this._sessionReady;
     const urlHash = CloudSync.encodeUrlKey(highlight.url);
     const payload = {
       ...highlight,
       _author: this.presenceId,
+      _authorName: this._userName,
     };
     this._knownIds.add(highlight.id);
     try {
@@ -260,7 +261,7 @@ class CloudSync {
 
   async announcePresence(pageUrl) {
     if (!this.isConfigured) return;
-    await this._sharedIdReady;
+    await this._sessionReady;
     const payload = {
       name: this._userName,
       role: this._role,
@@ -272,7 +273,6 @@ class CloudSync {
         action: "write-presence",
         firebaseUrl: this._firebaseUrl,
         packKey: this._packKey,
-        instanceId: this.presenceId,
         payload,
       });
     } catch (err) {
@@ -282,13 +282,12 @@ class CloudSync {
 
   async removePresence() {
     if (!this.isConfigured) return;
-    await this._sharedIdReady;
+    await this._sessionReady;
     try {
       chrome.runtime.sendMessage({
         action: "remove-presence",
         firebaseUrl: this._firebaseUrl,
         packKey: this._packKey,
-        instanceId: this.presenceId,
       });
     } catch {}
   }
@@ -415,6 +414,17 @@ class CloudSync {
   /* ════════════════════════════════════════════
      UTILITIES
      ════════════════════════════════════════════ */
+
+  static decodeUrlKey(hash) {
+    try {
+      let b64 = hash.replace(/-/g, "+").replace(/_/g, "/");
+      const pad = b64.length % 4;
+      if (pad) b64 += "=".repeat(4 - pad);
+      return decodeURIComponent(escape(atob(b64)));
+    } catch {
+      return hash;
+    }
+  }
 
   static encodeUrlKey(url) {
     try {

@@ -8,11 +8,22 @@
   "use strict";
 
   let allData = {};          // { url: [highlights] }
-  let currentView = "domain"; // domain | date | all
+  let currentView = "domain"; // domain | date | all | room
   let filterDomain = null;
   let searchQuery = "";
   let selectedIds = new Set();
   let cloudRole = null;      // null = no cloud, "viewer" | "commentor" | "editor"
+  let activeCloudConfig = null;
+  let selectedRoom = null;   // { firebaseUrl, packKey, packName, role }
+  let roomHighlights = {};   // fetched from Firebase for the selected room
+
+  const NAME_COLOR_HEX = {
+    Amber: "#f59e0b", Azure: "#3b82f6", Coral: "#f97316", Cyan: "#06b6d4",
+    Ember: "#ef4444", Jade: "#10b981", Lime: "#84cc16", Mint: "#34d399",
+    Navy: "#1e40af", Onyx: "#71717a", Pearl: "#e2e8f0", Rose: "#f43f5e",
+    Ruby: "#dc2626", Sage: "#94a3b8", Slate: "#64748b", Teal: "#14b8a6",
+    Violet: "#8b5cf6", Zinc: "#a1a1aa",
+  };
 
   /* ════════════════════════════════════════════
      INIT
@@ -69,9 +80,11 @@
 
   function loadCloudStatus() {
     chrome.runtime.sendMessage({ action: "get-cloud-status" }, (status) => {
+      activeCloudConfig = status;
       const container = document.getElementById("cloudStatusContent");
       if (!container) return;
       if (status && status.packKey) {
+        cloudRole = status.role || null;
         const role = status.role || "viewer";
         const roleColors = { viewer: "#868e96", commentor: "#51cf66", editor: "#ffe066" };
         const roleColor = roleColors[role] || "#868e96";
@@ -91,14 +104,23 @@
         `;
         if (status.userName) {
           const idEl = document.getElementById("dashIdentity");
-          if (idEl) idEl.innerHTML = `<span class="dash-identity-label">You are</span> <span class="dash-identity-name">${escapeHTML(status.userName)}</span>`;
+          if (idEl) idEl.innerHTML = `<span class="dash-identity-label">You are</span> ${avatarHTML(status.userName, 18)} <span class="dash-identity-name">${escapeHTML(status.userName)}</span>`;
         }
         loadPresenceCount(status);
       } else {
         container.innerHTML = `<span class="cloud-offline">Not connected</span>`;
       }
-      loadRoomHistory(status);
+      loadRoomManager(status);
     });
+  }
+
+  function avatarHTML(name, size) {
+    const s = size || 16;
+    const fs = Math.round(s * 0.55);
+    const parts = (name || "Anonymous").split(" ");
+    const color = NAME_COLOR_HEX[parts[0]] || "#71717a";
+    const initial = (parts[1] || parts[0] || "?").charAt(0).toUpperCase();
+    return `<span class="dash-avatar" style="background:${color};width:${s}px;height:${s}px;font-size:${fs}px">${initial}</span>`;
   }
 
   function loadPresenceCount(config) {
@@ -112,7 +134,7 @@
         const namesEl = document.getElementById("dashViewerNames");
         if (namesEl && entries.length > 0) {
           namesEl.innerHTML = entries
-            .map(v => `<span class="dash-viewer-chip">${escapeHTML(v.name || "Anonymous")}</span>`)
+            .map(v => `<span class="dash-viewer-chip">${avatarHTML(v.name, 14)}${escapeHTML(v.name || "Anonymous")}</span>`)
             .join("");
         } else if (namesEl) {
           namesEl.innerHTML = "";
@@ -121,54 +143,48 @@
     );
   }
 
-  function loadRoomHistory(activeConfig) {
+  function loadRoomManager(activeConfig) {
     chrome.runtime.sendMessage({ action: "get-room-history" }, (history) => {
-      const section = document.getElementById("roomHistorySection");
-      const list = document.getElementById("dashRoomHistoryList");
+      const section = document.getElementById("roomManagerSection");
+      const list = document.getElementById("roomManagerList");
       if (!section || !list) return;
       if (!history || history.length === 0) {
         section.style.display = "none";
         return;
       }
-      const activeKey = activeConfig?.packKey;
-      const filtered = history.filter(r => r.packKey !== activeKey);
-      if (filtered.length === 0) {
-        section.style.display = "none";
-        return;
-      }
       section.style.display = "";
-      list.innerHTML = filtered.map(r => {
-        const ago = timeAgo(r.lastActive);
+      const activeKey = activeConfig?.packKey;
+      list.innerHTML = history.map(r => {
+        const isActive = r.packKey === activeKey;
+        const isSelected = selectedRoom && selectedRoom.packKey === r.packKey;
         return `
-          <div class="dash-history-item" data-key="${escapeAttr(r.packKey)}" data-url="${escapeAttr(r.firebaseUrl)}">
-            <div class="dash-history-info">
-              <span class="dash-history-name">${escapeHTML(r.packName || r.packKey)}</span>
-              <code class="dash-history-key">${escapeHTML(r.packKey)}</code>
+          <div class="room-item${isActive ? " room-active" : ""}${isSelected ? " room-selected" : ""}"
+               data-key="${escapeAttr(r.packKey)}" data-url="${escapeAttr(r.firebaseUrl)}"
+               data-name="${escapeAttr(r.packName || r.packKey)}" data-role="${escapeAttr(r.role || "viewer")}">
+            <div class="room-item-info">
+              <span class="room-item-name">${escapeHTML(r.packName || r.packKey)}</span>
+              <code class="room-item-key">${escapeHTML(r.packKey)}</code>
             </div>
-            <span class="dash-history-ago">${ago}</span>
-            <button class="dash-history-rejoin" title="Rejoin this room">↗</button>
+            <div class="room-item-meta">
+              <span class="room-item-role role-${r.role || "viewer"}">${r.role || "viewer"}</span>
+              ${isActive ? '<span class="room-item-live"></span>' : ""}
+            </div>
           </div>
         `;
       }).join("");
 
-      list.querySelectorAll(".dash-history-item").forEach(item => {
-        item.querySelector(".dash-history-rejoin").addEventListener("click", () => {
-          const btn = item.querySelector(".dash-history-rejoin");
-          btn.textContent = "…";
-          chrome.runtime.sendMessage(
-            { action: "rejoin-room", firebaseUrl: item.dataset.url, packKey: item.dataset.key },
-            (resp) => {
-              if (resp?.ok) {
-                cloudRole = resp.config.role || null;
-                loadCloudStatus();
-                render();
-                toast("Rejoined " + (resp.config.packName || resp.config.packKey));
-              } else {
-                btn.textContent = "↗";
-                toast(resp?.error || "Failed to rejoin");
-              }
-            }
-          );
+      list.querySelectorAll(".room-item").forEach(item => {
+        item.addEventListener("click", () => {
+          selectedRoom = {
+            firebaseUrl: item.dataset.url,
+            packKey: item.dataset.key,
+            packName: item.dataset.name,
+            role: item.dataset.role,
+          };
+          currentView = "room";
+          document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+          render();
+          loadRoomManager(activeCloudConfig);
         });
       });
     });
@@ -197,7 +213,9 @@
         btn.classList.add("active");
         currentView = btn.dataset.view;
         filterDomain = null;
+        selectedRoom = null;
         render();
+        loadRoomManager(activeCloudConfig);
       });
     });
 
@@ -332,6 +350,12 @@
   /* ── Main content ────────────────────────── */
   function renderContent() {
     const content = document.getElementById("content");
+
+    if (currentView === "room" && selectedRoom) {
+      renderRoomView(content);
+      return;
+    }
+
     const flat = getFlatHighlights();
 
     if (flat.length === 0) {
@@ -440,6 +464,10 @@
       ? `<span class="card-readonly-badge" title="Read-only — your role cannot delete this">${SVG_LOCK_SM} read-only</span>`
       : "";
 
+    const authorChip = h._authorName
+      ? `<span class="card-author">${avatarHTML(h._authorName, 14)} ${escapeHTML(h._authorName)}</span>`
+      : "";
+
     return `
       <div class="highlight-card${selectedClass}${!deletable ? " readonly" : ""}" data-id="${escapeAttr(h.id)}" data-url="${safeUrl}" data-deletable="${deletable}">
         <input type="checkbox" class="card-checkbox"${checked} />
@@ -449,6 +477,7 @@
           <div class="card-meta">
             <a href="${safeUrl}" target="_blank" title="${safeUrl}">${safeTitle}</a>
             <span>${date}</span>
+            ${authorChip}
             ${cloudBadge}
             ${accessBadge}
           </div>
@@ -708,6 +737,224 @@
     };
     reader.readAsText(file);
     e.target.value = ""; // reset
+  }
+
+  /* ════════════════════════════════════════════
+     ROOM VIEW
+     ════════════════════════════════════════════ */
+  function renderRoomView(content) {
+    if (!selectedRoom) return;
+    const title = document.getElementById("viewTitle");
+    title.textContent = selectedRoom.packName || selectedRoom.packKey;
+
+    content.innerHTML = `<div class="room-view-loading">Loading room highlights…</div>`;
+
+    chrome.runtime.sendMessage(
+      { action: "get-room-highlights", firebaseUrl: selectedRoom.firebaseUrl, packKey: selectedRoom.packKey },
+      (data) => {
+        roomHighlights = data || {};
+        const urlHashes = Object.keys(roomHighlights);
+        if (urlHashes.length === 0) {
+          content.innerHTML = renderRoomHeader() + `<div class="empty-state"><div class="empty-icon">${SVG_HIGHLIGHTER}</div><h3>No highlights in this room</h3><p>Highlights made in this room will appear here.</p></div>`;
+          wireRoomSettings(content);
+          return;
+        }
+
+        let html = renderRoomHeader();
+
+        for (const urlHash of urlHashes) {
+          const decodedUrl = decodeUrlKey(urlHash);
+          const highlights = roomHighlights[urlHash];
+          if (!highlights || typeof highlights !== "object") continue;
+          const entries = Object.entries(highlights);
+          if (entries.length === 0) continue;
+
+          html += `<div class="group-header"><h3>${escapeHTML(decodedUrl)}</h3><span class="group-count">${entries.length}</span></div>`;
+          for (const [id, hl] of entries) {
+            const date = hl.createdAt ? new Date(hl.createdAt).toLocaleString() : "";
+            const authorChip = hl._authorName
+              ? `${avatarHTML(hl._authorName, 14)} <span class="card-author-name">${escapeHTML(hl._authorName)}</span>`
+              : "";
+            html += `
+              <div class="highlight-card room-card" data-id="${escapeAttr(id)}">
+                <div class="card-body">
+                  <div class="card-text">${escapeHTML(hl.text || "")}</div>
+                  ${hl.note ? `<div class="card-note">${escapeHTML(hl.note)}</div>` : ""}
+                  <div class="card-meta">
+                    ${authorChip}
+                    <span>${date}</span>
+                  </div>
+                </div>
+              </div>
+            `;
+          }
+        }
+
+        content.innerHTML = html;
+        wireRoomSettings(content);
+      }
+    );
+  }
+
+  function renderRoomHeader() {
+    const room = selectedRoom;
+    const isEditor = room.role === "editor";
+    const roleColors = { viewer: "#868e96", commentor: "#51cf66", editor: "#ffe066" };
+    const roleColor = roleColors[room.role] || "#868e96";
+
+    let presenceHTML = '<div class="room-header-viewers" id="roomViewPresence"></div>';
+
+    let settingsHTML = "";
+    if (isEditor) {
+      settingsHTML = `
+        <div class="room-settings" id="roomSettingsPanel">
+          <div class="room-settings-header">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+            Room Settings
+          </div>
+          <div class="room-settings-row">
+            <label>Room Name</label>
+            <div class="room-settings-inline">
+              <input type="text" id="roomNameInput" class="room-settings-input" value="${escapeAttr(room.packName || "")}" />
+              <button class="room-settings-btn" id="btnSaveRoomName">Save</button>
+            </div>
+          </div>
+          <div class="room-settings-row">
+            <label>Default Role</label>
+            <select id="roomDefaultRole" class="room-settings-select">
+              <option value="viewer"${room.role === "viewer" ? " selected" : ""}>Viewer (read only)</option>
+              <option value="commentor">Commentor (annotate)</option>
+              <option value="editor">Editor (full access)</option>
+            </select>
+          </div>
+          <div class="room-settings-row">
+            <button class="room-settings-btn danger" id="btnDeleteRoom">Delete Room</button>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="room-header">
+        <div class="room-header-info">
+          <span class="room-header-name">${escapeHTML(room.packName || room.packKey)}</span>
+          <code class="room-header-key">${escapeHTML(room.packKey)}</code>
+          <span class="room-header-role" style="color:${roleColor};border-color:${roleColor}">${room.role}</span>
+        </div>
+        ${presenceHTML}
+        ${settingsHTML}
+      </div>
+    `;
+  }
+
+  function wireRoomSettings(container) {
+    if (!selectedRoom) return;
+
+    loadRoomViewPresence();
+
+    const saveBtn = container.querySelector("#btnSaveRoomName");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", () => {
+        const input = container.querySelector("#roomNameInput");
+        const newName = input.value.trim();
+        if (!newName) return;
+        saveBtn.textContent = "…";
+        chrome.runtime.sendMessage({
+          action: "update-room-name",
+          firebaseUrl: selectedRoom.firebaseUrl,
+          packKey: selectedRoom.packKey,
+          newName,
+        }, (resp) => {
+          saveBtn.textContent = "Save";
+          if (resp?.ok) {
+            selectedRoom.packName = newName;
+            toast("Room name updated!");
+            loadCloudStatus();
+          } else {
+            toast(resp?.error || "Failed to update name");
+          }
+        });
+      });
+    }
+
+    const roleSelect = container.querySelector("#roomDefaultRole");
+    if (roleSelect) {
+      chrome.runtime.sendMessage(
+        { action: "get-room-presence", firebaseUrl: selectedRoom.firebaseUrl, packKey: selectedRoom.packKey },
+        () => {
+          const metaUrl = `${selectedRoom.firebaseUrl}/packs/${selectedRoom.packKey}/meta.json`;
+          fetch(metaUrl).then(r => r.json()).then(meta => {
+            if (meta && meta.defaultRole) roleSelect.value = meta.defaultRole;
+          }).catch(() => {});
+        }
+      );
+      roleSelect.addEventListener("change", () => {
+        const newRole = roleSelect.value;
+        chrome.runtime.sendMessage({
+          action: "set-default-role",
+          role: newRole,
+          firebaseUrl: selectedRoom.firebaseUrl,
+          packKey: selectedRoom.packKey,
+        }, (resp) => {
+          if (resp?.ok) toast("Default role updated to " + newRole);
+          else toast(resp?.error || "Failed to update role");
+        });
+      });
+    }
+
+    const deleteBtn = container.querySelector("#btnDeleteRoom");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", () => {
+        if (!confirm(`Delete room "${selectedRoom.packName || selectedRoom.packKey}"? This cannot be undone.`)) return;
+        deleteBtn.textContent = "Deleting…";
+        chrome.runtime.sendMessage({
+          action: "delete-room",
+          firebaseUrl: selectedRoom.firebaseUrl,
+          packKey: selectedRoom.packKey,
+        }, (resp) => {
+          if (resp?.ok) {
+            toast("Room deleted!");
+            selectedRoom = null;
+            currentView = "domain";
+            loadCloudStatus();
+            loadData();
+          } else {
+            deleteBtn.textContent = "Delete Room";
+            toast(resp?.error || "Failed to delete room");
+          }
+        });
+      });
+    }
+  }
+
+  function loadRoomViewPresence() {
+    if (!selectedRoom) return;
+    chrome.runtime.sendMessage(
+      { action: "get-room-presence", firebaseUrl: selectedRoom.firebaseUrl, packKey: selectedRoom.packKey },
+      (viewers) => {
+        const el = document.getElementById("roomViewPresence");
+        if (!el) return;
+        const entries = viewers ? Object.values(viewers) : [];
+        if (entries.length === 0) {
+          el.innerHTML = '<span class="room-presence-empty">No one online</span>';
+          return;
+        }
+        el.innerHTML = entries.map(v =>
+          `<span class="dash-viewer-chip">${avatarHTML(v.name, 14)}${escapeHTML(v.name || "Anonymous")}</span>`
+        ).join("");
+      }
+    );
+  }
+
+  function decodeUrlKey(hash) {
+    try {
+      let b64 = hash.replace(/-/g, "+").replace(/_/g, "/");
+      const pad = b64.length % 4;
+      if (pad) b64 += "=".repeat(4 - pad);
+      return decodeURIComponent(escape(atob(b64)));
+    } catch {
+      return hash;
+    }
   }
 
   /* ════════════════════════════════════════════
