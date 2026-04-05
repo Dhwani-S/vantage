@@ -82,11 +82,17 @@
           </div>
           <code class="cloud-room-key">${escapeHTML(status.packKey)}</code>
           <span class="cloud-role-tag" style="color:${roleColor};border-color:${roleColor}">${role}</span>
+          <div class="cloud-identity-row" id="dashIdentity"></div>
           <div class="cloud-viewers-row" id="dashViewers">
             <span class="cloud-viewer-dot"></span>
             <span id="dashViewerCount">…</span> online
           </div>
+          <div class="cloud-viewer-names" id="dashViewerNames"></div>
         `;
+        if (status.userName) {
+          const idEl = document.getElementById("dashIdentity");
+          if (idEl) idEl.innerHTML = `<span class="dash-identity-label">You are</span> <span class="dash-identity-name">${escapeHTML(status.userName)}</span>`;
+        }
         loadPresenceCount(status);
       } else {
         container.innerHTML = `<span class="cloud-offline">Not connected</span>`;
@@ -99,9 +105,18 @@
     chrome.runtime.sendMessage(
       { action: "get-room-presence", firebaseUrl: config.firebaseUrl, packKey: config.packKey },
       (viewers) => {
-        const count = viewers ? Object.keys(viewers).length : 0;
+        const entries = viewers ? Object.values(viewers) : [];
         const el = document.getElementById("dashViewerCount");
-        if (el) el.textContent = count;
+        if (el) el.textContent = entries.length;
+
+        const namesEl = document.getElementById("dashViewerNames");
+        if (namesEl && entries.length > 0) {
+          namesEl.innerHTML = entries
+            .map(v => `<span class="dash-viewer-chip">${escapeHTML(v.name || "Anonymous")}</span>`)
+            .join("");
+        } else if (namesEl) {
+          namesEl.innerHTML = "";
+        }
       }
     );
   }

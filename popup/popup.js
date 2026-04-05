@@ -235,6 +235,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     badge.textContent = role;
     badge.className = "cloud-role-badge role-" + role;
 
+    const identity = document.getElementById("cloudIdentity");
+    if (config.userName) {
+      identity.innerHTML = `<span class="identity-label">You are</span> <span class="identity-name">${esc(config.userName)}</span>`;
+    } else {
+      identity.textContent = "";
+    }
+
     const roleSelector = document.getElementById("roleSelector");
     if (role === "editor") {
       roleSelector.classList.remove("hidden");
@@ -267,13 +274,21 @@ document.addEventListener("DOMContentLoaded", async () => {
       chrome.runtime.sendMessage(
         { action: "get-room-presence", firebaseUrl: config.firebaseUrl, packKey: config.packKey },
         (viewers) => {
-          const count = viewers ? Object.keys(viewers).length : 0;
+          const entries = viewers ? Object.values(viewers) : [];
           const el = document.getElementById("viewerCount");
-          if (el) el.textContent = count;
+          if (el) el.textContent = entries.length;
+
+          const namesEl = document.getElementById("viewerNames");
+          if (namesEl && entries.length > 0) {
+            namesEl.innerHTML = entries
+              .map(v => `<span class="viewer-chip">${esc(v.name || "Anonymous")}</span>`)
+              .join("");
+          } else if (namesEl) {
+            namesEl.innerHTML = "";
+          }
         }
       );
     };
-    // Fetch after a short delay (let content scripts announce first), then poll
     setTimeout(fetchPresence, 1500);
     if (_presencePoller) clearInterval(_presencePoller);
     _presencePoller = setInterval(fetchPresence, 5000);

@@ -501,6 +501,26 @@ body {
   border-color: var(--v-accent);
 }
 
+/* Your identity */
+.cloud-identity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.identity-label {
+  color: var(--v-text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.identity-name {
+  color: var(--v-accent);
+  font-weight: 700;
+  font-family: var(--v-font-sans);
+}
+
 /* Active viewers */
 .cloud-viewers {
   display: flex;
@@ -626,6 +646,25 @@ body {
   background: var(--v-danger-subtle);
   border-radius: 6px;
   font-weight: 500;
+}
+
+/* Viewer name chips */
+.viewer-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.viewer-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-family: var(--v-font-sans);
+  font-weight: 500;
+  color: var(--v-text-secondary);
+  background: var(--v-surface);
+  border: 1px solid var(--v-border);
+  border-radius: 10px;
 }
 
 .hidden {

@@ -40,10 +40,30 @@ chrome.storage.local.get("highlightingEnabled", ({ highlightingEnabled }) => {
 });
 
 /* ════════════════════════════════════════════
-   PRESENCE HELPER — write from service worker
-   (more reliable than content script fetch)
+   ANONYMOUS NAME GENERATOR (Excalidraw-style)
    ════════════════════════════════════════════ */
-// One presence ID per browser — all tabs share the same identity
+const NAME_COLORS = [
+  "Amber", "Azure", "Coral", "Cyan", "Ember",
+  "Jade", "Lime", "Mint", "Navy", "Onyx",
+  "Pearl", "Rose", "Ruby", "Sage", "Slate",
+  "Teal", "Violet", "Zinc",
+];
+const NAME_ANIMALS = [
+  "Bear", "Crane", "Deer", "Eagle", "Falcon",
+  "Fox", "Hawk", "Lynx", "Owl", "Panda",
+  "Raven", "Seal", "Swan", "Tiger", "Wolf",
+  "Wren", "Heron", "Otter",
+];
+
+function generateAnonName() {
+  const color = NAME_COLORS[Math.floor(Math.random() * NAME_COLORS.length)];
+  const animal = NAME_ANIMALS[Math.floor(Math.random() * NAME_ANIMALS.length)];
+  return `${color} ${animal}`;
+}
+
+/* ════════════════════════════════════════════
+   PRESENCE + IDENTITY HELPERS
+   ════════════════════════════════════════════ */
 function getOrCreateInstanceId(callback) {
   chrome.storage.local.get("vantageInstanceId", (data) => {
     if (data.vantageInstanceId) {
@@ -55,10 +75,36 @@ function getOrCreateInstanceId(callback) {
   });
 }
 
-function writePresenceFromBg(firebaseUrl, packKey, role) {
+function assignRoomName(firebaseUrl, packKey, callback) {
+  getOrCreateInstanceId((instanceId) => {
+    const memberUrl = `${firebaseUrl}/packs/${packKey}/members/${instanceId}.json`;
+    fetch(memberUrl, { headers: { "Content-Type": "application/json" } })
+      .then(resp => resp.ok ? resp.json() : null)
+      .then(existing => {
+        if (existing && existing.name) {
+          callback(existing.name, instanceId);
+        } else {
+          const name = generateAnonName();
+          const entry = { name, joinedAt: new Date().toISOString() };
+          fetch(memberUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(entry),
+          })
+            .then(() => callback(name, instanceId))
+            .catch(() => callback(name, instanceId));
+        }
+      })
+      .catch(() => {
+        callback(generateAnonName(), instanceId);
+      });
+  });
+}
+
+function writePresenceFromBg(firebaseUrl, packKey, role, userName) {
   getOrCreateInstanceId((instanceId) => {
     const payload = {
-      name: "User",
+      name: userName || "Anonymous",
       role: role || "viewer",
       url: "",
       lastSeen: Date.now(),
@@ -83,6 +129,7 @@ function addToRoomHistory(config, callback) {
       packKey: config.packKey,
       packName: config.packName,
       role: config.role,
+      userName: config.userName || "",
       joinedAt: idx >= 0 ? history[idx].joinedAt : new Date().toISOString(),
       lastActive: new Date().toISOString(),
     };
@@ -153,10 +200,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })
       .then(resp => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor" };
-        chrome.storage.local.set({ cloudPack: config }, () => {
-          writePresenceFromBg(url, packKey, "editor");
-          addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+        assignRoomName(url, packKey, (userName) => {
+          const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor", userName };
+          chrome.storage.local.set({ cloudPack: config }, () => {
+            writePresenceFromBg(url, packKey, "editor", userName);
+            addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+          });
         });
       })
       .catch(err => sendResponse({ error: err.message }));
@@ -176,10 +225,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .then(meta => {
         if (!meta) throw new Error("Pack not found");
         const role = meta.defaultRole || "viewer";
-        const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role };
-        chrome.storage.local.set({ cloudPack: config }, () => {
-          writePresenceFromBg(url, packKey, role);
-          addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+        assignRoomName(url, packKey, (userName) => {
+          const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role, userName };
+          chrome.storage.local.set({ cloudPack: config }, () => {
+            writePresenceFromBg(url, packKey, role, userName);
+            addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+          });
         });
       })
       .catch(err => sendResponse({ error: err.message }));
@@ -199,10 +250,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .then(meta => {
         if (!meta) throw new Error("Room no longer exists");
         const role = meta.defaultRole || "viewer";
-        const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role };
-        chrome.storage.local.set({ cloudPack: config }, () => {
-          writePresenceFromBg(url, packKey, role);
-          addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+        assignRoomName(url, packKey, (userName) => {
+          const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role, userName };
+          chrome.storage.local.set({ cloudPack: config }, () => {
+            writePresenceFromBg(url, packKey, role, userName);
+            addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+          });
         });
       })
       .catch(err => sendResponse({ error: err.message }));
@@ -261,6 +314,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const history = (data.roomHistory || []).filter(r => r.packKey !== msg.packKey);
       chrome.storage.local.set({ roomHistory: history }, () => sendResponse({ ok: true }));
     });
+    return true;
+  }
+
+  if (msg.action === "get-room-members") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({}); return true; }
+    fetch(`${url}/packs/${packKey}/members.json`)
+      .then(resp => resp.ok ? resp.json() : null)
+      .then(data => sendResponse(data || {}))
+      .catch(() => sendResponse({}));
     return true;
   }
 

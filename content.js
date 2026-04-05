@@ -1004,8 +1004,8 @@
     }
 
     cloudSync = new CloudSync();
-    cloudSync.configure(config.firebaseUrl, config.packKey, config.role || "viewer");
-    console.log("[Vantage] Cloud sync active — pack:", config.packKey, "role:", config.role);
+    cloudSync.configure(config.firebaseUrl, config.packKey, config.role || "viewer", config.userName);
+    console.log("[Vantage] Cloud sync active — pack:", config.packKey, "role:", config.role, "as:", config.userName);
 
     fetchAndMergeCloudHighlights();
     cloudSubscribeCurrentUrl();
@@ -1038,13 +1038,18 @@
     }
 
     const names = others.map(([, v]) => v.name || "Anonymous");
-    const displayNames = names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
+    const overflow = names.length > 3 ? ` +${names.length - 3}` : "";
+    const nameChips = names.slice(0, 3).map(n =>
+      `<span class="vp-name">${n}</span>`
+    ).join("") + (overflow ? `<span class="vp-overflow">${overflow}</span>` : "");
+
     indicator.innerHTML = `
       <span class="vp-dot"></span>
       <span class="vp-count">${count}</span>
       <span class="vp-label">${count === 1 ? "viewer" : "viewers"}</span>
+      <span class="vp-names">${nameChips}</span>
     `;
-    indicator.title = displayNames;
+    indicator.title = names.join(", ");
   }
 
   function removePresenceIndicator() {

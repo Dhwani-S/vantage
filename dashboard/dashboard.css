@@ -334,6 +334,39 @@ body {
   font-weight: 700;
   color: var(--text-primary);
 }
+.cloud-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.dash-identity-label {
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.dash-identity-name {
+  color: var(--accent);
+  font-weight: 700;
+}
+.cloud-viewer-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.dash-viewer-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
 
 /* Room History */
 .dash-history-list {
