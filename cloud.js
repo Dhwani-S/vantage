@@ -18,7 +18,7 @@ class CloudSync {
     this._packKey = "";
     this._role = CloudSync.ROLES.VIEWER;
     this._instanceId = this._generateInstanceId();
-    this._sharedInstanceId = null; // loaded from storage, shared across tabs
+    this._sharedInstanceId = null;
     this._userName = "Anonymous";
     this._eventSource = null;
     this._presenceSource = null;
@@ -29,23 +29,27 @@ class CloudSync {
     this._subscribedUrlHash = null;
     this._knownIds = new Set();
     this._activeViewers = {};
-    this._loadSharedId();
+    this._sharedIdReady = this._loadSharedId();
   }
 
   _loadSharedId() {
-    try {
-      chrome.storage.local.get("vantageInstanceId", (data) => {
-        if (data.vantageInstanceId) {
-          this._sharedInstanceId = data.vantageInstanceId;
-        } else {
-          const id = "v-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-          this._sharedInstanceId = id;
-          chrome.storage.local.set({ vantageInstanceId: id });
-        }
-      });
-    } catch {
-      this._sharedInstanceId = this._instanceId;
-    }
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get("vantageInstanceId", (data) => {
+          if (data.vantageInstanceId) {
+            this._sharedInstanceId = data.vantageInstanceId;
+          } else {
+            const id = "v-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            this._sharedInstanceId = id;
+            chrome.storage.local.set({ vantageInstanceId: id });
+          }
+          resolve();
+        });
+      } catch {
+        this._sharedInstanceId = this._instanceId;
+        resolve();
+      }
+    });
   }
 
   get presenceId() {
@@ -173,18 +177,24 @@ class CloudSync {
 
   async pushHighlight(highlight) {
     if (!this.isConfigured) return;
+    await this._sharedIdReady;
     const urlHash = CloudSync.encodeUrlKey(highlight.url);
     const payload = {
       ...highlight,
-      _author: this._instanceId,
+      _author: this.presenceId,
     };
     this._knownIds.add(highlight.id);
-    const resp = await fetch(
-      `${this._firebaseUrl}/packs/${this._packKey}/highlights/${urlHash}/${highlight.id}.json`,
-      { method: "PUT", body: JSON.stringify(payload) }
-    );
-    if (!resp.ok) {
-      console.error("[CloudSync] Push failed:", resp.status);
+    try {
+      chrome.runtime.sendMessage({
+        action: "push-highlight-cloud",
+        firebaseUrl: this._firebaseUrl,
+        packKey: this._packKey,
+        urlHash,
+        highlightId: highlight.id,
+        payload,
+      });
+    } catch (err) {
+      console.error("[CloudSync] Push relay failed:", err);
     }
   }
 
@@ -192,12 +202,16 @@ class CloudSync {
     if (!this.isConfigured) return;
     const urlHash = CloudSync.encodeUrlKey(url);
     this._knownIds.delete(highlightId);
-    const resp = await fetch(
-      `${this._firebaseUrl}/packs/${this._packKey}/highlights/${urlHash}/${highlightId}.json`,
-      { method: "DELETE" }
-    );
-    if (!resp.ok) {
-      console.error("[CloudSync] Delete failed:", resp.status);
+    try {
+      chrome.runtime.sendMessage({
+        action: "delete-highlight-cloud",
+        firebaseUrl: this._firebaseUrl,
+        packKey: this._packKey,
+        urlHash,
+        highlightId,
+      });
+    } catch (err) {
+      console.error("[CloudSync] Delete relay failed:", err);
     }
   }
 
@@ -246,6 +260,7 @@ class CloudSync {
 
   async announcePresence(pageUrl) {
     if (!this.isConfigured) return;
+    await this._sharedIdReady;
     const payload = {
       name: this._userName,
       role: this._role,
@@ -267,6 +282,7 @@ class CloudSync {
 
   async removePresence() {
     if (!this.isConfigured) return;
+    await this._sharedIdReady;
     try {
       chrome.runtime.sendMessage({
         action: "remove-presence",
@@ -392,7 +408,7 @@ class CloudSync {
 
   _shouldAccept(id, highlight) {
     if (this._knownIds.has(id)) return false;
-    if (highlight._author === this._instanceId) return false;
+    if (highlight._author === this.presenceId) return false;
     return true;
   }
 

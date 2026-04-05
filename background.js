@@ -347,6 +347,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "push-highlight-cloud") {
+    const { firebaseUrl, packKey, urlHash, highlightId, payload } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey || !urlHash || !highlightId) { sendResponse({ ok: false }); return true; }
+    fetch(`${url}/packs/${packKey}/highlights/${urlHash}/${highlightId}.json`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(resp => sendResponse({ ok: resp.ok }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (msg.action === "delete-highlight-cloud") {
+    const { firebaseUrl, packKey, urlHash, highlightId } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey || !urlHash || !highlightId) { sendResponse({ ok: false }); return true; }
+    fetch(`${url}/packs/${packKey}/highlights/${urlHash}/${highlightId}.json`, {
+      method: "DELETE",
+    })
+      .then(resp => sendResponse({ ok: resp.ok }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
   if (msg.action === "write-presence") {
     const { firebaseUrl, packKey, instanceId, payload } = msg;
     const url = (firebaseUrl || "").replace(/\/+$/, "");
