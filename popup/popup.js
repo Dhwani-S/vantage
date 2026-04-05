@@ -260,16 +260,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // ── Presence Count ──────────────────────────
+  let _presencePoller = null;
   function loadPresenceCount(config) {
     if (!config || !config.firebaseUrl || !config.packKey) return;
-    chrome.runtime.sendMessage(
-      { action: "get-room-presence", firebaseUrl: config.firebaseUrl, packKey: config.packKey },
-      (viewers) => {
-        const count = viewers ? Object.keys(viewers).length : 0;
-        const el = document.getElementById("viewerCount");
-        if (el) el.textContent = count;
-      }
-    );
+    const fetchPresence = () => {
+      chrome.runtime.sendMessage(
+        { action: "get-room-presence", firebaseUrl: config.firebaseUrl, packKey: config.packKey },
+        (viewers) => {
+          const count = viewers ? Object.keys(viewers).length : 0;
+          const el = document.getElementById("viewerCount");
+          if (el) el.textContent = count;
+        }
+      );
+    };
+    // Fetch after a short delay (let content scripts announce first), then poll
+    setTimeout(fetchPresence, 1500);
+    if (_presencePoller) clearInterval(_presencePoller);
+    _presencePoller = setInterval(fetchPresence, 5000);
   }
 
   // ── Room History ────────────────────────────

@@ -231,10 +231,13 @@ class CloudSync {
       lastSeen: Date.now(),
     };
     try {
-      await fetch(
-        `${this._firebaseUrl}/packs/${this._packKey}/presence/${this._instanceId}.json`,
-        { method: "PUT", body: JSON.stringify(payload) }
-      );
+      chrome.runtime.sendMessage({
+        action: "write-presence",
+        firebaseUrl: this._firebaseUrl,
+        packKey: this._packKey,
+        instanceId: this._instanceId,
+        payload,
+      });
     } catch (err) {
       console.warn("[CloudSync] Presence announce failed:", err);
     }
@@ -243,10 +246,12 @@ class CloudSync {
   async removePresence() {
     if (!this.isConfigured) return;
     try {
-      await fetch(
-        `${this._firebaseUrl}/packs/${this._packKey}/presence/${this._instanceId}.json`,
-        { method: "DELETE" }
-      );
+      chrome.runtime.sendMessage({
+        action: "remove-presence",
+        firebaseUrl: this._firebaseUrl,
+        packKey: this._packKey,
+        instanceId: this._instanceId,
+      });
     } catch {}
   }
 

@@ -40,6 +40,26 @@ chrome.storage.local.get("highlightingEnabled", ({ highlightingEnabled }) => {
 });
 
 /* ════════════════════════════════════════════
+   PRESENCE HELPER — write from service worker
+   (more reliable than content script fetch)
+   ════════════════════════════════════════════ */
+let bgInstanceId = "bg-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function writePresenceFromBg(firebaseUrl, packKey, role) {
+  const payload = {
+    name: "User",
+    role: role || "viewer",
+    url: "",
+    lastSeen: Date.now(),
+  };
+  fetch(`${firebaseUrl}/packs/${packKey}/presence/${bgInstanceId}.json`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
+/* ════════════════════════════════════════════
    ROOM HISTORY HELPERS
    ════════════════════════════════════════════ */
 function addToRoomHistory(config, callback) {
@@ -123,6 +143,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor" };
         chrome.storage.local.set({ cloudPack: config }, () => {
+          writePresenceFromBg(url, packKey, "editor");
           addToRoomHistory(config, () => sendResponse({ ok: true, config }));
         });
       })
@@ -145,6 +166,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const role = meta.defaultRole || "viewer";
         const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role };
         chrome.storage.local.set({ cloudPack: config }, () => {
+          writePresenceFromBg(url, packKey, role);
           addToRoomHistory(config, () => sendResponse({ ok: true, config }));
         });
       })
@@ -167,6 +189,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const role = meta.defaultRole || "viewer";
         const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role };
         chrome.storage.local.set({ cloudPack: config }, () => {
+          writePresenceFromBg(url, packKey, role);
           addToRoomHistory(config, () => sendResponse({ ok: true, config }));
         });
       })
@@ -245,6 +268,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(active);
       })
       .catch(() => sendResponse({}));
+    return true;
+  }
+
+  if (msg.action === "write-presence") {
+    const { firebaseUrl, packKey, instanceId, payload } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey || !instanceId) { sendResponse({ ok: false }); return true; }
+    fetch(`${url}/packs/${packKey}/presence/${instanceId}.json`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(resp => sendResponse({ ok: resp.ok }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (msg.action === "remove-presence") {
+    const { firebaseUrl, packKey, instanceId } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey || !instanceId) { sendResponse({ ok: false }); return true; }
+    fetch(`${url}/packs/${packKey}/presence/${instanceId}.json`, { method: "DELETE" })
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 
