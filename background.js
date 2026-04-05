@@ -28,18 +28,38 @@ chrome.commands.onCommand.addListener((command, tab) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.highlightingEnabled) {
     const active = changes.highlightingEnabled.newValue !== false;
-    // Update badge globally (no tabId = all tabs)
     chrome.action.setBadgeText({ text: active ? "ON" : "" });
     chrome.action.setBadgeBackgroundColor({ color: "#51cf66" });
   }
 });
 
-// Set initial badge on startup
 chrome.storage.local.get("highlightingEnabled", ({ highlightingEnabled }) => {
   const active = highlightingEnabled !== false;
   chrome.action.setBadgeText({ text: active ? "ON" : "" });
   chrome.action.setBadgeBackgroundColor({ color: "#51cf66" });
 });
+
+/* ════════════════════════════════════════════
+   ROOM HISTORY HELPERS
+   ════════════════════════════════════════════ */
+function addToRoomHistory(config, callback) {
+  chrome.storage.local.get("roomHistory", (data) => {
+    const history = data.roomHistory || [];
+    const idx = history.findIndex(r => r.packKey === config.packKey && r.firebaseUrl === config.firebaseUrl);
+    const entry = {
+      firebaseUrl: config.firebaseUrl,
+      packKey: config.packKey,
+      packName: config.packName,
+      role: config.role,
+      joinedAt: idx >= 0 ? history[idx].joinedAt : new Date().toISOString(),
+      lastActive: new Date().toISOString(),
+    };
+    if (idx >= 0) history.splice(idx, 1);
+    history.unshift(entry);
+    const trimmed = history.slice(0, 20);
+    chrome.storage.local.set({ roomHistory: trimmed }, callback);
+  });
+}
 
 // ── Message Router ────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -51,7 +71,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.get("highlights", (data) => {
       sendResponse(data.highlights || {});
     });
-    return true; // async
+    return true;
   }
 
   if (msg.action === "save-highlights") {
@@ -77,7 +97,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // ── Cloud Pack CRUD ─────────────────────────
+  // ── Cloud Room CRUD ─────────────────────────
   if (msg.action === "create-cloud-pack") {
     const { firebaseUrl, name } = msg;
     const url = (firebaseUrl || "").replace(/\/+$/, "");
@@ -103,7 +123,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor" };
         chrome.storage.local.set({ cloudPack: config }, () => {
-          sendResponse({ ok: true, config });
+          addToRoomHistory(config, () => sendResponse({ ok: true, config }));
         });
       })
       .catch(err => sendResponse({ error: err.message }));
@@ -125,7 +145,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const role = meta.defaultRole || "viewer";
         const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role };
         chrome.storage.local.set({ cloudPack: config }, () => {
-          sendResponse({ ok: true, config });
+          addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+        });
+      })
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === "rejoin-room") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({ error: "Missing URL or key" }); return true; }
+
+    fetch(`${url}/packs/${packKey}/meta.json`)
+      .then(resp => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+      })
+      .then(meta => {
+        if (!meta) throw new Error("Room no longer exists");
+        const role = meta.defaultRole || "viewer";
+        const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role };
+        chrome.storage.local.set({ cloudPack: config }, () => {
+          addToRoomHistory(config, () => sendResponse({ ok: true, config }));
         });
       })
       .catch(err => sendResponse({ error: err.message }));
@@ -172,8 +214,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "get-room-history") {
+    chrome.storage.local.get("roomHistory", (data) => {
+      sendResponse(data.roomHistory || []);
+    });
+    return true;
+  }
+
+  if (msg.action === "remove-from-history") {
+    chrome.storage.local.get("roomHistory", (data) => {
+      const history = (data.roomHistory || []).filter(r => r.packKey !== msg.packKey);
+      chrome.storage.local.set({ roomHistory: history }, () => sendResponse({ ok: true }));
+    });
+    return true;
+  }
+
+  if (msg.action === "get-room-presence") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({}); return true; }
+    fetch(`${url}/packs/${packKey}/presence.json`)
+      .then(resp => resp.ok ? resp.json() : null)
+      .then(data => {
+        if (!data) { sendResponse({}); return; }
+        const cutoff = Date.now() - 60000;
+        const active = {};
+        for (const [id, info] of Object.entries(data)) {
+          if (info && info.lastSeen > cutoff) active[id] = info;
+        }
+        sendResponse(active);
+      })
+      .catch(() => sendResponse({}));
+    return true;
+  }
+
   if (msg.action === "clear-all-data") {
-    chrome.storage.local.remove(["highlights", "cloudPack"], () => {
+    chrome.storage.local.remove(["highlights", "cloudPack", "roomHistory"], () => {
       sendResponse({ ok: true });
     });
     return true;
@@ -182,12 +258,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "import-pack") {
     chrome.storage.local.get("highlights", (data) => {
       const all = data.highlights || {};
-      const pack = msg.payload; // { url: [highlights] }
+      const pack = msg.payload;
       for (const url of Object.keys(pack)) {
         if (!all[url]) {
           all[url] = pack[url];
         } else {
-          // merge — avoid duplicates by id
           const existingIds = new Set(all[url].map(h => h.id));
           for (const h of pack[url]) {
             if (!existingIds.has(h.id)) {

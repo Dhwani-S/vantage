@@ -131,7 +131,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   chrome.runtime.sendMessage({ action: "get-cloud-status" }, (status) => {
     if (status && status.packKey) {
       showConnectedUI(status);
+      loadPresenceCount(status);
     }
+    loadRoomHistory(status);
   });
 
   // Create Pack
@@ -255,5 +257,97 @@ document.addEventListener("DOMContentLoaded", async () => {
     el.textContent = message;
     cloudDisconnected.appendChild(el);
     setTimeout(() => el.remove(), 4000);
+  }
+
+  // ── Presence Count ──────────────────────────
+  function loadPresenceCount(config) {
+    if (!config || !config.firebaseUrl || !config.packKey) return;
+    chrome.runtime.sendMessage(
+      { action: "get-room-presence", firebaseUrl: config.firebaseUrl, packKey: config.packKey },
+      (viewers) => {
+        const count = viewers ? Object.keys(viewers).length : 0;
+        const el = document.getElementById("viewerCount");
+        if (el) el.textContent = count;
+      }
+    );
+  }
+
+  // ── Room History ────────────────────────────
+  function loadRoomHistory(activeConfig) {
+    chrome.runtime.sendMessage({ action: "get-room-history" }, (history) => {
+      const container = document.getElementById("roomHistory");
+      const list = document.getElementById("roomHistoryList");
+      if (!history || history.length === 0) {
+        container.classList.add("hidden");
+        return;
+      }
+
+      const activeKey = activeConfig?.packKey;
+      const filtered = history.filter(r => r.packKey !== activeKey);
+      if (filtered.length === 0) {
+        container.classList.add("hidden");
+        return;
+      }
+
+      container.classList.remove("hidden");
+      list.innerHTML = filtered.map(r => {
+        const ago = timeAgo(r.lastActive);
+        return `
+          <div class="history-item" data-key="${esc(r.packKey)}" data-url="${esc(r.firebaseUrl)}">
+            <div class="history-info">
+              <span class="history-name">${esc(r.packName || r.packKey)}</span>
+              <code class="history-key">${esc(r.packKey)}</code>
+              <span class="history-ago">${ago}</span>
+            </div>
+            <div class="history-actions">
+              <button class="history-btn rejoin" title="Rejoin">↗</button>
+              <button class="history-btn remove" title="Remove">×</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      list.querySelectorAll(".history-item").forEach(item => {
+        item.querySelector(".rejoin").addEventListener("click", () => {
+          const key = item.dataset.key;
+          const url = item.dataset.url;
+          item.querySelector(".rejoin").textContent = "…";
+          chrome.runtime.sendMessage({ action: "rejoin-room", firebaseUrl: url, packKey: key }, (resp) => {
+            if (resp?.error) {
+              showCloudError(resp.error);
+              item.querySelector(".rejoin").textContent = "↗";
+            } else if (resp?.config) {
+              showConnectedUI(resp.config);
+              loadPresenceCount(resp.config);
+              loadRoomHistory(resp.config);
+            }
+          });
+        });
+        item.querySelector(".remove").addEventListener("click", () => {
+          chrome.runtime.sendMessage({ action: "remove-from-history", packKey: item.dataset.key }, () => {
+            item.remove();
+            if (list.children.length === 0) container.classList.add("hidden");
+          });
+        });
+      });
+    });
+  }
+
+  function esc(str) {
+    const d = document.createElement("div");
+    d.textContent = str || "";
+    return d.innerHTML;
+  }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return "";
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
   }
 });

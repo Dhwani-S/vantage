@@ -82,11 +82,93 @@
           </div>
           <code class="cloud-room-key">${escapeHTML(status.packKey)}</code>
           <span class="cloud-role-tag" style="color:${roleColor};border-color:${roleColor}">${role}</span>
+          <div class="cloud-viewers-row" id="dashViewers">
+            <span class="cloud-viewer-dot"></span>
+            <span id="dashViewerCount">…</span> online
+          </div>
         `;
+        loadPresenceCount(status);
       } else {
         container.innerHTML = `<span class="cloud-offline">Not connected</span>`;
       }
+      loadRoomHistory(status);
     });
+  }
+
+  function loadPresenceCount(config) {
+    chrome.runtime.sendMessage(
+      { action: "get-room-presence", firebaseUrl: config.firebaseUrl, packKey: config.packKey },
+      (viewers) => {
+        const count = viewers ? Object.keys(viewers).length : 0;
+        const el = document.getElementById("dashViewerCount");
+        if (el) el.textContent = count;
+      }
+    );
+  }
+
+  function loadRoomHistory(activeConfig) {
+    chrome.runtime.sendMessage({ action: "get-room-history" }, (history) => {
+      const section = document.getElementById("roomHistorySection");
+      const list = document.getElementById("dashRoomHistoryList");
+      if (!section || !list) return;
+      if (!history || history.length === 0) {
+        section.style.display = "none";
+        return;
+      }
+      const activeKey = activeConfig?.packKey;
+      const filtered = history.filter(r => r.packKey !== activeKey);
+      if (filtered.length === 0) {
+        section.style.display = "none";
+        return;
+      }
+      section.style.display = "";
+      list.innerHTML = filtered.map(r => {
+        const ago = timeAgo(r.lastActive);
+        return `
+          <div class="dash-history-item" data-key="${escapeAttr(r.packKey)}" data-url="${escapeAttr(r.firebaseUrl)}">
+            <div class="dash-history-info">
+              <span class="dash-history-name">${escapeHTML(r.packName || r.packKey)}</span>
+              <code class="dash-history-key">${escapeHTML(r.packKey)}</code>
+            </div>
+            <span class="dash-history-ago">${ago}</span>
+            <button class="dash-history-rejoin" title="Rejoin this room">↗</button>
+          </div>
+        `;
+      }).join("");
+
+      list.querySelectorAll(".dash-history-item").forEach(item => {
+        item.querySelector(".dash-history-rejoin").addEventListener("click", () => {
+          const btn = item.querySelector(".dash-history-rejoin");
+          btn.textContent = "…";
+          chrome.runtime.sendMessage(
+            { action: "rejoin-room", firebaseUrl: item.dataset.url, packKey: item.dataset.key },
+            (resp) => {
+              if (resp?.ok) {
+                cloudRole = resp.config.role || null;
+                loadCloudStatus();
+                render();
+                toast("Rejoined " + (resp.config.packName || resp.config.packKey));
+              } else {
+                btn.textContent = "↗";
+                toast(resp?.error || "Failed to rejoin");
+              }
+            }
+          );
+        });
+      });
+    });
+  }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return "";
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "now";
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d`;
   }
 
   /* ════════════════════════════════════════════

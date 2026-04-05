@@ -501,6 +501,123 @@ body {
   border-color: var(--v-accent);
 }
 
+/* Active viewers */
+.cloud-viewers {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--v-text-muted);
+}
+.cloud-viewers svg {
+  color: var(--v-success);
+  flex-shrink: 0;
+}
+#viewerCount {
+  font-weight: 700;
+  font-family: var(--v-font-mono);
+  color: var(--v-text-secondary);
+}
+.viewer-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Room History */
+.room-history {
+  margin-top: 8px;
+  border-top: 1px solid var(--v-border);
+  padding-top: 8px;
+}
+.history-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--v-text-muted);
+  margin-bottom: 6px;
+  font-family: var(--v-font-mono);
+}
+.history-header svg { flex-shrink: 0; }
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: var(--v-bg);
+  border: 1px solid var(--v-border);
+  border-radius: 8px;
+  transition: border-color 0.12s;
+}
+.history-item:hover {
+  border-color: var(--v-border-hover);
+}
+.history-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.history-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--v-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-key {
+  font-family: var(--v-font-mono);
+  font-size: 9px;
+  color: var(--v-accent);
+  letter-spacing: 0.5px;
+}
+.history-ago {
+  font-size: 9px;
+  color: var(--v-text-muted);
+}
+.history-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.history-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+  color: var(--v-text-muted);
+}
+.history-btn.rejoin:hover {
+  background: var(--v-accent-subtle);
+  color: var(--v-accent);
+}
+.history-btn.remove:hover {
+  background: var(--v-danger-subtle);
+  color: var(--v-danger);
+}
+
 .cloud-error {
   font-size: 11px;
   color: var(--v-danger);

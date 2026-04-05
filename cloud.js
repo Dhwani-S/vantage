@@ -18,21 +18,39 @@ class CloudSync {
     this._packKey = "";
     this._role = CloudSync.ROLES.VIEWER;
     this._instanceId = this._generateInstanceId();
+    this._userName = "Anonymous";
     this._eventSource = null;
+    this._presenceSource = null;
+    this._heartbeatTimer = null;
     this._onHighlight = null;
     this._onDelete = null;
+    this._onPresenceChange = null;
     this._subscribedUrlHash = null;
     this._knownIds = new Set();
+    this._activeViewers = {};
   }
 
   /* ════════════════════════════════════════════
      CONFIGURATION
      ════════════════════════════════════════════ */
 
-  configure(firebaseUrl, packKey, role) {
+  configure(firebaseUrl, packKey, role, userName) {
     this._firebaseUrl = (firebaseUrl || "").replace(/\/+$/, "");
     this._packKey = packKey || "";
     this._role = role || CloudSync.ROLES.VIEWER;
+    this._userName = userName || "Anonymous";
+  }
+
+  get instanceId() {
+    return this._instanceId;
+  }
+
+  get activeViewers() {
+    return { ...this._activeViewers };
+  }
+
+  get activeViewerCount() {
+    return Object.keys(this._activeViewers).length;
   }
 
   get isConfigured() {
@@ -198,6 +216,114 @@ class CloudSync {
       this._eventSource = null;
     }
     this._subscribedUrlHash = null;
+  }
+
+  /* ════════════════════════════════════════════
+     PRESENCE — who's online in this room
+     ════════════════════════════════════════════ */
+
+  async announcePresence(pageUrl) {
+    if (!this.isConfigured) return;
+    const payload = {
+      name: this._userName,
+      role: this._role,
+      url: pageUrl || "",
+      lastSeen: Date.now(),
+    };
+    try {
+      await fetch(
+        `${this._firebaseUrl}/packs/${this._packKey}/presence/${this._instanceId}.json`,
+        { method: "PUT", body: JSON.stringify(payload) }
+      );
+    } catch (err) {
+      console.warn("[CloudSync] Presence announce failed:", err);
+    }
+  }
+
+  async removePresence() {
+    if (!this.isConfigured) return;
+    try {
+      await fetch(
+        `${this._firebaseUrl}/packs/${this._packKey}/presence/${this._instanceId}.json`,
+        { method: "DELETE" }
+      );
+    } catch {}
+  }
+
+  startHeartbeat(pageUrlFn) {
+    this.stopHeartbeat();
+    this.announcePresence(pageUrlFn ? pageUrlFn() : "");
+    this._heartbeatTimer = setInterval(() => {
+      this.announcePresence(pageUrlFn ? pageUrlFn() : "");
+    }, 30000);
+  }
+
+  stopHeartbeat() {
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
+  }
+
+  subscribePresence(onChange) {
+    this.unsubscribePresence();
+    if (!this.isConfigured) return;
+    this._onPresenceChange = onChange;
+
+    const url = `${this._firebaseUrl}/packs/${this._packKey}/presence.json`;
+    this._presenceSource = new EventSource(url);
+
+    this._presenceSource.addEventListener("put", (e) => {
+      this._handlePresenceSSE(e);
+    });
+    this._presenceSource.addEventListener("patch", (e) => {
+      this._handlePresenceSSE(e);
+    });
+    this._presenceSource.onerror = () => {};
+  }
+
+  unsubscribePresence() {
+    if (this._presenceSource) {
+      this._presenceSource.close();
+      this._presenceSource = null;
+    }
+  }
+
+  _handlePresenceSSE(event) {
+    let parsed;
+    try { parsed = JSON.parse(event.data); } catch { return; }
+    const { path, data } = parsed;
+
+    if (path === "/") {
+      this._activeViewers = {};
+      if (data && typeof data === "object") {
+        const cutoff = Date.now() - 60000;
+        for (const [id, info] of Object.entries(data)) {
+          if (info && info.lastSeen > cutoff) {
+            this._activeViewers[id] = info;
+          }
+        }
+      }
+    } else {
+      const id = path.split("/").filter(Boolean).pop();
+      if (!data) {
+        delete this._activeViewers[id];
+      } else if (data.lastSeen > Date.now() - 60000) {
+        this._activeViewers[id] = data;
+      }
+    }
+
+    if (this._onPresenceChange) {
+      this._onPresenceChange(this._activeViewers);
+    }
+  }
+
+  disconnectAll() {
+    this.removePresence();
+    this.stopHeartbeat();
+    this.unsubscribePresence();
+    this.unsubscribe();
+    this._activeViewers = {};
   }
 
   _handleSSE(event, type) {

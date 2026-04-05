@@ -995,8 +995,9 @@
   function initCloudSync(config) {
     if (!config || !config.firebaseUrl || !config.packKey) {
       if (cloudSync) {
-        cloudSync.unsubscribe();
+        cloudSync.disconnectAll();
         cloudSync = null;
+        removePresenceIndicator();
         console.log("[Vantage] Cloud sync disconnected");
       }
       return;
@@ -1006,10 +1007,49 @@
     cloudSync.configure(config.firebaseUrl, config.packKey, config.role || "viewer");
     console.log("[Vantage] Cloud sync active — pack:", config.packKey, "role:", config.role);
 
-    // Proactively fetch existing highlights for this URL from Firebase
     fetchAndMergeCloudHighlights();
-
     cloudSubscribeCurrentUrl();
+
+    // Presence: announce, heartbeat, and subscribe to viewer changes
+    cloudSync.startHeartbeat(getCurrentUrl);
+    cloudSync.subscribePresence((viewers) => {
+      updatePresenceIndicator(viewers);
+    });
+  }
+
+  /* ════════════════════════════════════════════
+     ON-PAGE PRESENCE INDICATOR
+     ════════════════════════════════════════════ */
+  function updatePresenceIndicator(viewers) {
+    const selfId = cloudSync ? cloudSync.instanceId : null;
+    const others = Object.entries(viewers).filter(([id]) => id !== selfId);
+    const count = others.length;
+
+    let indicator = document.querySelector(".vantage-presence");
+    if (count === 0) {
+      if (indicator) indicator.remove();
+      return;
+    }
+
+    if (!indicator) {
+      indicator = document.createElement("div");
+      indicator.className = "vantage-presence";
+      document.body.appendChild(indicator);
+    }
+
+    const names = others.map(([, v]) => v.name || "Anonymous");
+    const displayNames = names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
+    indicator.innerHTML = `
+      <span class="vp-dot"></span>
+      <span class="vp-count">${count}</span>
+      <span class="vp-label">${count === 1 ? "viewer" : "viewers"}</span>
+    `;
+    indicator.title = displayNames;
+  }
+
+  function removePresenceIndicator() {
+    const el = document.querySelector(".vantage-presence");
+    if (el) el.remove();
   }
 
   async function fetchAndMergeCloudHighlights() {
@@ -1179,5 +1219,10 @@
       // Stop observer after 30s to avoid perf impact
       setTimeout(() => observer.disconnect(), 30000);
     }
+  });
+
+  // Clean up presence when leaving the page
+  window.addEventListener("beforeunload", () => {
+    if (cloudSync) cloudSync.removePresence();
   });
 })();
