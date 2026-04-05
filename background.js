@@ -43,20 +43,32 @@ chrome.storage.local.get("highlightingEnabled", ({ highlightingEnabled }) => {
    PRESENCE HELPER — write from service worker
    (more reliable than content script fetch)
    ════════════════════════════════════════════ */
-let bgInstanceId = "bg-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// One presence ID per browser — all tabs share the same identity
+function getOrCreateInstanceId(callback) {
+  chrome.storage.local.get("vantageInstanceId", (data) => {
+    if (data.vantageInstanceId) {
+      callback(data.vantageInstanceId);
+    } else {
+      const id = "v-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      chrome.storage.local.set({ vantageInstanceId: id }, () => callback(id));
+    }
+  });
+}
 
 function writePresenceFromBg(firebaseUrl, packKey, role) {
-  const payload = {
-    name: "User",
-    role: role || "viewer",
-    url: "",
-    lastSeen: Date.now(),
-  };
-  fetch(`${firebaseUrl}/packs/${packKey}/presence/${bgInstanceId}.json`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).catch(() => {});
+  getOrCreateInstanceId((instanceId) => {
+    const payload = {
+      name: "User",
+      role: role || "viewer",
+      url: "",
+      lastSeen: Date.now(),
+    };
+    fetch(`${firebaseUrl}/packs/${packKey}/presence/${instanceId}.json`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  });
 }
 
 /* ════════════════════════════════════════════

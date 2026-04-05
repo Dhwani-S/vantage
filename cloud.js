@@ -18,6 +18,7 @@ class CloudSync {
     this._packKey = "";
     this._role = CloudSync.ROLES.VIEWER;
     this._instanceId = this._generateInstanceId();
+    this._sharedInstanceId = null; // loaded from storage, shared across tabs
     this._userName = "Anonymous";
     this._eventSource = null;
     this._presenceSource = null;
@@ -28,6 +29,27 @@ class CloudSync {
     this._subscribedUrlHash = null;
     this._knownIds = new Set();
     this._activeViewers = {};
+    this._loadSharedId();
+  }
+
+  _loadSharedId() {
+    try {
+      chrome.storage.local.get("vantageInstanceId", (data) => {
+        if (data.vantageInstanceId) {
+          this._sharedInstanceId = data.vantageInstanceId;
+        } else {
+          const id = "v-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+          this._sharedInstanceId = id;
+          chrome.storage.local.set({ vantageInstanceId: id });
+        }
+      });
+    } catch {
+      this._sharedInstanceId = this._instanceId;
+    }
+  }
+
+  get presenceId() {
+    return this._sharedInstanceId || this._instanceId;
   }
 
   /* ════════════════════════════════════════════
@@ -235,7 +257,7 @@ class CloudSync {
         action: "write-presence",
         firebaseUrl: this._firebaseUrl,
         packKey: this._packKey,
-        instanceId: this._instanceId,
+        instanceId: this.presenceId,
         payload,
       });
     } catch (err) {
@@ -250,7 +272,7 @@ class CloudSync {
         action: "remove-presence",
         firebaseUrl: this._firebaseUrl,
         packKey: this._packKey,
-        instanceId: this._instanceId,
+        instanceId: this.presenceId,
       });
     } catch {}
   }

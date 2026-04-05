@@ -1021,7 +1021,7 @@
      ON-PAGE PRESENCE INDICATOR
      ════════════════════════════════════════════ */
   function updatePresenceIndicator(viewers) {
-    const selfId = cloudSync ? cloudSync.instanceId : null;
+    const selfId = cloudSync ? cloudSync.presenceId : null;
     const others = Object.entries(viewers).filter(([id]) => id !== selfId);
     const count = others.length;
 
