@@ -1,0 +1,479 @@
+/* ─────────────────────────────────────────────
+   Context Scribe — Popup Styles (Dark + Light)
+   ───────────────────────────────────────────── */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ── Dark Theme (default) ──────────────────── */
+:root {
+  --pop-bg: #0f0f12;
+  --pop-surface: #1a1b1e;
+  --pop-border: #25262b;
+  --pop-text: #c1c2c5;
+  --pop-muted: #5c5f66;
+  --pop-accent: #ffe066;
+  --pop-accent-hover: #ffd633;
+  --pop-secondary-bg: #25262b;
+  --pop-secondary-border: #373a40;
+  --pop-secondary-text: #c1c2c5;
+  --pop-kbd-bg: #25262b;
+  --pop-kbd-border: #373a40;
+  --pop-kbd-text: #909296;
+}
+
+/* ── Light Theme ───────────────────────────── */
+[data-theme="light"] {
+  --pop-bg: #f8f9fa;
+  --pop-surface: #ffffff;
+  --pop-border: #dee2e6;
+  --pop-text: #212529;
+  --pop-muted: #868e96;
+  --pop-accent: #e8a317;
+  --pop-accent-hover: #d4940f;
+  --pop-secondary-bg: #f1f3f5;
+  --pop-secondary-border: #ced4da;
+  --pop-secondary-text: #495057;
+  --pop-kbd-bg: #e9ecef;
+  --pop-kbd-border: #ced4da;
+  --pop-kbd-text: #495057;
+}
+
+body {
+  width: 320px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--pop-bg);
+  color: var(--pop-text);
+}
+
+.popup-container {
+  padding: 16px;
+}
+
+/* ── Header ────────────────────────────────── */
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  display: flex;
+  align-items: center;
+  color: var(--pop-accent);
+}
+.logo-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.logo h1 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--pop-accent);
+  letter-spacing: -0.3px;
+}
+
+.tagline {
+  font-size: 11px;
+  color: var(--pop-muted);
+  margin-top: 1px;
+}
+
+/* ── Theme Toggle ──────────────────────────── */
+.theme-toggle {
+  background: var(--pop-secondary-bg);
+  border: 1px solid var(--pop-border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  border-color: var(--pop-accent);
+  transform: scale(1.08);
+}
+
+/* ── Page Toggle ───────────────────────────── */
+.page-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--pop-surface);
+  border: 1px solid var(--pop-border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.page-toggle.active {
+  border-color: var(--pop-accent);
+  background: rgba(255, 224, 102, 0.05);
+}
+
+.toggle-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-icon {
+  display: flex;
+  align-items: center;
+  color: var(--pop-muted);
+}
+.page-toggle.active .toggle-icon {
+  color: var(--pop-accent);
+}
+
+.toggle-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pop-muted);
+  transition: color 0.2s;
+}
+
+.page-toggle.active .toggle-label {
+  color: var(--pop-accent);
+}
+
+/* Toggle Switch */
+.switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--pop-border);
+  border-radius: 22px;
+  transition: background 0.25s;
+}
+
+.slider::before {
+  content: "";
+  position: absolute;
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.25s;
+}
+
+.switch input:checked + .slider {
+  background: var(--pop-accent);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(18px);
+}
+
+/* (no unavailable state needed — toggle is global) */
+
+/* ── Stats ─────────────────────────────────── */
+.stats-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.stat {
+  flex: 1;
+  background: var(--pop-surface);
+  border: 1px solid var(--pop-border);
+  border-radius: 8px;
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.stat-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--pop-accent);
+}
+
+.stat-label {
+  display: block;
+  font-size: 10px;
+  color: var(--pop-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-top: 2px;
+}
+
+/* ── Actions ───────────────────────────────── */
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+.action-btn svg {
+  flex-shrink: 0;
+}
+
+.action-btn.primary {
+  background: var(--pop-accent);
+  color: #1a1b1e;
+}
+.action-btn.primary:hover {
+  background: var(--pop-accent-hover);
+}
+
+.action-btn.secondary {
+  background: var(--pop-secondary-bg);
+  color: var(--pop-secondary-text);
+  border: 1px solid var(--pop-secondary-border);
+}
+.action-btn.secondary:hover {
+  background: var(--pop-border);
+  border-color: var(--pop-accent);
+  color: var(--pop-accent);
+}
+
+/* ── Cloud Pack ────────────────────────────── */
+.cloud-section {
+  background: var(--pop-surface);
+  border: 1px solid var(--pop-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.cloud-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--pop-muted);
+  margin-bottom: 10px;
+}
+
+.cloud-header svg {
+  color: var(--pop-muted);
+  flex-shrink: 0;
+}
+
+.cloud-input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--pop-bg);
+  border: 1px solid var(--pop-border);
+  border-radius: 6px;
+  color: var(--pop-text);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+  margin-bottom: 8px;
+}
+
+.cloud-input:focus {
+  border-color: var(--pop-accent);
+}
+
+.cloud-input::placeholder {
+  color: var(--pop-muted);
+}
+
+.cloud-input.error {
+  border-color: #ff6b6b;
+  animation: cs-shake 0.3s ease;
+}
+
+@keyframes cs-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.cloud-btn-row {
+  display: flex;
+  gap: 6px;
+}
+
+.cloud-btn {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--pop-border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.cloud-btn.create {
+  background: var(--pop-accent);
+  color: #1a1b1e;
+  border-color: var(--pop-accent);
+}
+.cloud-btn.create:hover {
+  background: var(--pop-accent-hover);
+}
+
+.cloud-btn.join {
+  background: var(--pop-secondary-bg);
+  color: var(--pop-secondary-text);
+}
+.cloud-btn.join:hover {
+  border-color: var(--pop-accent);
+  color: var(--pop-accent);
+}
+
+.cloud-btn.leave {
+  background: none;
+  color: #ff6b6b;
+  border-color: transparent;
+  font-size: 11px;
+  padding: 4px 10px;
+  flex: 0;
+}
+.cloud-btn.leave:hover {
+  border-color: #ff6b6b;
+}
+
+.cloud-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.join-fields {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.join-fields .cloud-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.join-fields .cloud-btn {
+  flex: 0;
+  white-space: nowrap;
+}
+
+/* Connected state */
+.cloud-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.cloud-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #51cf66;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(81, 207, 102, 0.5);
+}
+
+.cloud-pack-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pop-text);
+}
+
+.cloud-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cloud-key {
+  flex: 1;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  color: var(--pop-accent);
+  cursor: pointer;
+  padding: 4px 8px;
+  background: var(--pop-bg);
+  border-radius: 4px;
+  transition: background 0.12s;
+}
+
+.cloud-key:hover {
+  background: var(--pop-border);
+}
+
+.cloud-error {
+  font-size: 11px;
+  color: #ff6b6b;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(255, 107, 107, 0.1);
+  border-radius: 4px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ── Shortcut Hint ─────────────────────────── */
+.shortcut-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--pop-muted);
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--pop-kbd-bg);
+  border: 1px solid var(--pop-kbd-border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--pop-kbd-text);
+}

@@ -1,0 +1,19 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Chrome extension dev artifacts
+*.crx
+*.pem
+*.zip
+
+# Cursor
+.cursor/
