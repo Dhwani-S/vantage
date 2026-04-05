@@ -1,21 +1,21 @@
 /* ─────────────────────────────────────────────
-   Context Scribe — Content Script
-   Runs on every page to paint & manage highlights
+   Vantage — Content Script
+   Overlay layer for web annotations
    ───────────────────────────────────────────── */
 
 (() => {
   "use strict";
 
   // Guard against double-injection — but allow re-injection after extension reload
-  if (window.__contextScribeLoaded) {
+  if (window.__vantageLoaded) {
     try {
       // If the runtime is still alive, the existing script is healthy — skip
       if (chrome.runtime?.id) return;
     } catch {}
     // Runtime is dead (extension was reloaded) → re-initialize
-    console.log("[Context Scribe] Re-initializing after extension reload");
+    console.log("[Vantage] Re-initializing after extension reload");
   }
-  window.__contextScribeLoaded = true;
+  window.__vantageLoaded = true;
 
   let highlights = []; // local cache — may span multiple URLs on SPAs
   let activeTooltip = null;
@@ -26,13 +26,12 @@
   let currentTheme = "dark";  // synced from chrome.storage
   let isActive = false;        // global activation — persisted in chrome.storage
   let cloudSync = null;        // CloudSync instance (null = cloud disabled)
-  /** SVG icon constants (professional, no emojis) */
   const IC = {
-    sun:   `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
-    moon:  `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
-    trash: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
-    check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
-    close: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    sun:   `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>`,
+    moon:  `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`,
+    trash: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`,
+    check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
+    close: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
   };
 
   /** Strip tracking params, trailing slashes, and fragments for consistent URL matching */
@@ -67,7 +66,7 @@
 
   let lastKnownUrl = getCurrentUrl(); // for SPA URL-change detection
 
-  console.log("[Context Scribe] Content script loaded on:", getCurrentUrl());
+  console.log("[Vantage] Content script loaded on:", getCurrentUrl());
 
   /* ════════════════════════════════════════════
      STORAGE HELPERS
@@ -78,7 +77,7 @@
       try {
         chrome.runtime.sendMessage({ action: "get-all-highlights" }, (all) => {
           if (chrome.runtime.lastError) {
-            console.error("[Context Scribe] Load failed:", chrome.runtime.lastError.message);
+            console.error("[Vantage] Load failed:", chrome.runtime.lastError.message);
             showConnectionError();
             resolve([]);
             return;
@@ -99,7 +98,7 @@
             }
           }
           if (loaded.length > 0) {
-            console.log(`[Context Scribe] Found ${loaded.length} highlights across matching URL keys`);
+            console.log(`[Vantage] Found ${loaded.length} highlights across matching URL keys`);
           }
           // Merge into local array (avoid duplicates by id)
           const existingIds = new Set(highlights.map(h => h.id));
@@ -108,11 +107,11 @@
               highlights.push(h);
             }
           }
-          console.log(`[Context Scribe] Loaded ${loaded.length} highlights for ${loadUrl} (total local: ${highlights.length})`);
+          console.log(`[Vantage] Loaded ${loaded.length} highlights for ${loadUrl} (total local: ${highlights.length})`);
           resolve(loaded);
         });
       } catch (e) {
-        console.error("[Context Scribe] Load failed:", e);
+        console.error("[Vantage] Load failed:", e);
         showConnectionError();
         resolve([]);
       }
@@ -124,7 +123,7 @@
       try {
         chrome.runtime.sendMessage({ action: "get-all-highlights" }, (all) => {
           if (chrome.runtime.lastError) {
-            console.error("[Context Scribe] Save failed (get):", chrome.runtime.lastError.message);
+            console.error("[Vantage] Save failed (get):", chrome.runtime.lastError.message);
             showConnectionError();
             resolve();
             return;
@@ -154,22 +153,22 @@
           try {
             chrome.runtime.sendMessage({ action: "save-highlights", payload: data }, () => {
               if (chrome.runtime.lastError) {
-                console.error("[Context Scribe] Save failed (set):", chrome.runtime.lastError.message);
+                console.error("[Vantage] Save failed (set):", chrome.runtime.lastError.message);
                 showConnectionError();
                 resolve();
                 return;
               }
-              console.log(`[Context Scribe] Saved ${highlights.length} highlights across ${Object.keys(byUrl).length} URL(s)`);
+              console.log(`[Vantage] Saved ${highlights.length} highlights across ${Object.keys(byUrl).length} URL(s)`);
               resolve();
             });
           } catch (e) {
-            console.error("[Context Scribe] Save failed:", e);
+            console.error("[Vantage] Save failed:", e);
             showConnectionError();
             resolve();
           }
         });
       } catch (e) {
-        console.error("[Context Scribe] Save failed:", e);
+        console.error("[Vantage] Save failed:", e);
         showConnectionError();
         resolve();
       }
@@ -183,12 +182,14 @@
     el.className = "cs-connection-error";
     el.style.cssText = `
       position: fixed; top: 16px; right: 16px; z-index: 2147483647;
-      background: #c92a2a; color: #fff; padding: 12px 18px; border-radius: 10px;
-      font: 600 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-width: 340px;
+      background: rgba(9,9,11,0.9); color: #f87171; padding: 12px 18px; border-radius: 10px;
+      border: 1px solid rgba(248,113,113,0.2);
+      font: 600 13px/1.4 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4); max-width: 340px;
       animation: cs-fadeIn 0.2s ease; cursor: pointer;
     `;
-    el.innerHTML = `Context Scribe lost connection.<br><span style="font-weight:400;font-size:12px;opacity:0.9">Reload this page to restore saving.</span>`;
+    el.innerHTML = `Vantage overlay lost connection.<br><span style="font-weight:400;font-size:12px;opacity:0.85">Reload this page to restore.</span>`;
     el.addEventListener("click", () => el.remove());
     document.body.appendChild(el);
     setTimeout(() => { if (el.parentNode) el.remove(); }, 8000);
@@ -231,7 +232,7 @@
       const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
       return result.singleNodeValue;
     } catch (e) {
-      console.warn("[Context Scribe] XPath resolve failed:", xpath, e.message);
+      console.warn("[Vantage] XPath resolve failed:", xpath, e.message);
       return null;
     }
   }
@@ -367,7 +368,7 @@
       if (text) {
         lastSavedRange = sel.getRangeAt(0).cloneRange();
         lastSavedText = text;
-        console.log("[Context Scribe] Selection saved:", text.slice(0, 60));
+        console.log("[Vantage] Selection saved:", text.slice(0, 60));
         return true;
       }
     }
@@ -386,18 +387,18 @@
     if (sel && !sel.isCollapsed && sel.rangeCount) {
       range = sel.getRangeAt(0);
       text = sel.toString().trim();
-      console.log("[Context Scribe] Using live selection:", text.slice(0, 60));
+      console.log("[Vantage] Using live selection:", text.slice(0, 60));
     }
 
     // 2) Fallback: use the last saved range (popup/click steals focus)
     if ((!range || !text) && lastSavedRange) {
       range = lastSavedRange;
       text = lastSavedText || range.toString().trim();
-      console.log("[Context Scribe] Using saved range:", text.slice(0, 60));
+      console.log("[Vantage] Using saved range:", text.slice(0, 60));
     }
 
     if (!range || !text) {
-      console.log("[Context Scribe] No selection or saved range found");
+      console.log("[Vantage] No selection or saved range found");
       return null;
     }
 
@@ -428,13 +429,13 @@
     highlights.push(record);
     saveHighlights();
 
-    if (cloudSync && cloudSync.isConfigured) {
+    if (cloudSync && cloudSync.isConfigured && cloudSync.canHighlight) {
       cloudSync.pushHighlight(record).catch(err =>
-        console.warn("[Context Scribe] Cloud push failed:", err)
+        console.warn("[Vantage] Cloud push failed:", err)
       );
     }
 
-    console.log("[Context Scribe] Highlighted:", text.slice(0, 60));
+    console.log("[Vantage] Highlighted:", text.slice(0, 60));
     return record;
   }
 
@@ -504,7 +505,7 @@
     const pageHighlights = highlights.filter(h => normalizeUrl(h.url) === currentUrl);
 
     if (pageHighlights.length === 0) {
-      console.log("[Context Scribe] No highlights to repaint for this URL");
+      console.log("[Vantage] No highlights to repaint for this URL");
       return;
     }
 
@@ -528,12 +529,12 @@
           range.setEnd(endNode, h.anchor.endOffset);
           const rangeText = range.toString().trim();
           if (!(rangeText && (rangeText === h.text || h.text.includes(rangeText) || rangeText.includes(h.text)))) {
-            console.log(`[Context Scribe] XPath text mismatch: "${rangeText.slice(0,40)}" vs "${h.text.slice(0,40)}"`);
+            console.log(`[Vantage] XPath text mismatch: "${rangeText.slice(0,40)}" vs "${h.text.slice(0,40)}"`);
             range = null;
           }
         }
       } catch (e) {
-        console.log(`[Context Scribe] XPath resolve failed for "${h.text.slice(0,40)}":`, e.message);
+        console.log(`[Vantage] XPath resolve failed for "${h.text.slice(0,40)}":`, e.message);
         range = null;
       }
 
@@ -550,7 +551,7 @@
         wrapRange(range, h.id, h.color || "yellow");
         painted++;
       } catch (e) {
-        console.log(`[Context Scribe] XPath paint failed for "${h.text.slice(0,40)}":`, e.message);
+        console.log(`[Vantage] XPath paint failed for "${h.text.slice(0,40)}":`, e.message);
         unresolved.push(h);
       }
     }
@@ -563,18 +564,18 @@
         if (range) {
           wrapRange(range, h.id, h.color || "yellow");
           painted++;
-          console.log(`[Context Scribe] Text-search fallback succeeded for: "${h.text.slice(0,40)}"`);
+          console.log(`[Vantage] Text-search fallback succeeded for: "${h.text.slice(0,40)}"`);
         } else {
           failed++;
-          console.log(`[Context Scribe] Could not repaint: "${h.text.slice(0,60)}"`);
+          console.log(`[Vantage] Could not repaint: "${h.text.slice(0,60)}"`);
         }
       } catch (e) {
         failed++;
-        console.log(`[Context Scribe] Text-search fallback failed for "${h.text.slice(0,40)}":`, e.message);
+        console.log(`[Vantage] Text-search fallback failed for "${h.text.slice(0,40)}":`, e.message);
       }
     }
 
-    console.log(`[Context Scribe] Repaint complete: ${painted} painted, ${failed} failed out of ${pageHighlights.length}`);
+    console.log(`[Vantage] Repaint complete: ${painted} painted, ${failed} failed out of ${pageHighlights.length}`);
     repaintAttempted = true;
   }
 
@@ -606,7 +607,7 @@
         return;
       }
 
-      console.log(`[Context Scribe] Retry repaint ${retryCount}/${maxRetries} — ${unpainted.length} unpainted`);
+      console.log(`[Vantage] Retry repaint ${retryCount}/${maxRetries} — ${unpainted.length} unpainted`);
 
       // Phase 1: resolve XPaths while DOM is clean
       const resolved = [];
@@ -655,20 +656,25 @@
     const record = highlights.find(h => h.id === id);
     if (!record) return;
 
+    const isCloudHighlight = !!record._cloud;
+    const isViewerRole = cloudSync && cloudSync.role === CloudSync.ROLES.VIEWER;
+    const canEditThis = !isViewerRole;
+    const canDeleteThis = !cloudSync || cloudSync.canDelete || (!isCloudHighlight);
+
     const rect = highlightEl.getBoundingClientRect();
     const tooltip = document.createElement("div");
     tooltip.className = `cs-tooltip${currentTheme === "light" ? " cs-light" : ""}`;
     tooltip.innerHTML = `
       <div class="cs-tooltip-header">
-        <span class="cs-tooltip-title">Note</span>
+        <span class="cs-tooltip-title">Note${isViewerRole ? " (read-only)" : ""}</span>
         <div class="cs-tooltip-header-right">
           <button class="cs-icon-btn cs-theme-toggle" title="Toggle theme">${currentTheme === "dark" ? IC.sun : IC.moon}</button>
-          <button class="cs-icon-btn cs-delete" title="Remove highlight">${IC.trash}</button>
-          <button class="cs-icon-btn cs-save" title="Save note">${IC.check}</button>
+          ${canDeleteThis ? `<button class="cs-icon-btn cs-delete" title="Remove highlight">${IC.trash}</button>` : ""}
+          ${canEditThis ? `<button class="cs-icon-btn cs-save" title="Save note">${IC.check}</button>` : ""}
           <button class="cs-icon-btn cs-tooltip-close" title="Close">${IC.close}</button>
         </div>
       </div>
-      <textarea placeholder="Add a note…">${record.note || ""}</textarea>
+      <textarea placeholder="${isViewerRole ? "View only" : "Add a note…"}"${isViewerRole ? " readonly" : ""}>${record.note || ""}</textarea>
     `;
 
     tooltip.style.top = (window.scrollY + rect.bottom + 8) + "px";
@@ -690,23 +696,29 @@
       tooltip.querySelector(".cs-theme-toggle").innerHTML = currentTheme === "dark" ? IC.sun : IC.moon;
     });
 
-    tooltip.querySelector(".cs-save").addEventListener("click", () => {
-      record.note = textarea.value.trim();
-      saveHighlights();
-      if (cloudSync && cloudSync.isConfigured) {
-        cloudSync.pushHighlight(record).catch(() => {});
-      }
-      closeTooltip();
-    });
+    const saveBtn = tooltip.querySelector(".cs-save");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", () => {
+        record.note = textarea.value.trim();
+        saveHighlights();
+        if (cloudSync && cloudSync.isConfigured) {
+          cloudSync.pushHighlight(record).catch(() => {});
+        }
+        closeTooltip();
+      });
+    }
 
-    tooltip.querySelector(".cs-delete").addEventListener("click", () => {
-      removeHighlight(id);
-      closeTooltip();
-    });
+    const deleteBtn = tooltip.querySelector(".cs-delete");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", () => {
+        removeHighlight(id);
+        closeTooltip();
+      });
+    }
 
     textarea.addEventListener("keydown", (e) => {
       if (e.key === "Escape") closeTooltip();
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canEditThis) {
         record.note = textarea.value.trim();
         saveHighlights();
         if (cloudSync && cloudSync.isConfigured) {
@@ -736,11 +748,11 @@
     const bar = document.createElement("div");
     bar.className = `cs-action-bar${currentTheme === "light" ? " cs-light" : ""}`;
     const colors = [
-      { name: "yellow", hex: "#ffe066" },
-      { name: "green",  hex: "#b2f2bb" },
-      { name: "blue",   hex: "#a5d8ff" },
-      { name: "pink",   hex: "#fcc2d7" },
-      { name: "orange", hex: "#ffd8a8" },
+      { name: "yellow", hex: "#facc15" },
+      { name: "green",  hex: "#34d399" },
+      { name: "blue",   hex: "#60a5fa" },
+      { name: "pink",   hex: "#f472b6" },
+      { name: "orange", hex: "#fb923c" },
     ];
     bar.innerHTML = colors.map(c =>
       `<button data-color="${c.name}" title="Highlight ${c.name}">
@@ -797,7 +809,7 @@
     highlights = highlights.filter(h => h.id !== id);
     saveHighlights();
 
-    if (cloudSync && cloudSync.isConfigured && record) {
+    if (cloudSync && cloudSync.isConfigured && cloudSync.canDelete && record) {
       cloudSync.deleteHighlight(record.url || getCurrentUrl(), id).catch(() => {});
     }
   }
@@ -813,7 +825,8 @@
 
   // Show action bar on text selection (mouseup) — only when activated for this page
   document.addEventListener("mouseup", (e) => {
-    if (!isActive) return; // highlighting not enabled for this page
+    if (!isActive) return;
+    if (cloudSync && !cloudSync.canHighlight) return; // viewers can't create highlights
     if (e.target.closest(".cs-tooltip, .cs-action-bar")) return;
 
     setTimeout(() => {
@@ -846,7 +859,7 @@
 
   // Listen for messages from background / popup
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    console.log("[Context Scribe] Message:", msg.action);
+    console.log("[Vantage] Message:", msg.action);
     if (msg.action === "highlight-selection") {
       const result = captureSelection();
       if (result) {
@@ -859,11 +872,11 @@
     }
     if (msg.action === "set-theme") {
       currentTheme = msg.theme || "dark";
-      console.log("[Context Scribe] Theme set to:", currentTheme);
+      console.log("[Vantage] Theme set to:", currentTheme);
     }
     if (msg.action === "set-active") {
       isActive = !!msg.active;
-      console.log("[Context Scribe] Highlighting", isActive ? "ENABLED" : "DISABLED");
+      console.log("[Vantage] Highlighting", isActive ? "ENABLED" : "DISABLED");
       if (!isActive) closeActionBar();
       sendResponse({ active: isActive });
     }
@@ -877,7 +890,7 @@
 
   // Listen for direct trigger from injected popup script (fallback path)
   document.addEventListener("cs-trigger-highlight", () => {
-    console.log("[Context Scribe] Direct trigger received");
+    console.log("[Vantage] Direct trigger received");
     const result = captureSelection();
     if (result) {
       setTimeout(() => {
@@ -894,7 +907,7 @@
      for the new URL automatically.
      ════════════════════════════════════════════ */
   function onUrlChanged(newUrl) {
-    console.log(`[Context Scribe] SPA navigation: → ${newUrl}`);
+    console.log(`[Vantage] SPA navigation: → ${newUrl}`);
     lastKnownUrl = newUrl;
     closeActionBar();
     closeTooltip();
@@ -983,14 +996,14 @@
       if (cloudSync) {
         cloudSync.unsubscribe();
         cloudSync = null;
-        console.log("[Context Scribe] Cloud sync disconnected");
+        console.log("[Vantage] Cloud sync disconnected");
       }
       return;
     }
 
     cloudSync = new CloudSync();
-    cloudSync.configure(config.firebaseUrl, config.packKey);
-    console.log("[Context Scribe] Cloud sync active — pack:", config.packKey);
+    cloudSync.configure(config.firebaseUrl, config.packKey, config.role || "viewer");
+    console.log("[Vantage] Cloud sync active — pack:", config.packKey, "role:", config.role);
 
     cloudSubscribeCurrentUrl();
   }
@@ -1008,7 +1021,7 @@
 
     cloudSync.subscribeToUrl(url,
       (remoteHighlight) => {
-        console.log("[Context Scribe] Cloud highlight received:", remoteHighlight.text?.slice(0, 50));
+        console.log("[Vantage] Cloud highlight received:", remoteHighlight.text?.slice(0, 50));
 
         // Skip if already painted locally
         if (document.querySelector(`[data-cs-id="${remoteHighlight.id}"]`)) return;
@@ -1049,13 +1062,13 @@
             highlights.push(clean);
             saveHighlights();
           }
-          console.log("[Context Scribe] Cloud highlight painted:", remoteHighlight.text?.slice(0, 40));
+          console.log("[Vantage] Cloud highlight painted:", remoteHighlight.text?.slice(0, 40));
         } else {
-          console.log("[Context Scribe] Cloud highlight could not be painted:", remoteHighlight.text?.slice(0, 40));
+          console.log("[Vantage] Cloud highlight could not be painted:", remoteHighlight.text?.slice(0, 40));
         }
       },
       (deletedId) => {
-        console.log("[Context Scribe] Cloud highlight deleted:", deletedId);
+        console.log("[Vantage] Cloud highlight deleted:", deletedId);
         removeHighlight(deletedId);
       }
     );
@@ -1068,7 +1081,7 @@
   chrome.storage.local.get(["theme", "highlightingEnabled", "cloudPack"], (prefs) => {
     currentTheme = prefs.theme || "dark";
     isActive = prefs.highlightingEnabled !== false; // default ON
-    console.log("[Context Scribe] Theme:", currentTheme, "| Highlighting:", isActive ? "ON" : "OFF");
+    console.log("[Vantage] Theme:", currentTheme, "| Highlighting:", isActive ? "ON" : "OFF");
 
     if (prefs.cloudPack && prefs.cloudPack.firebaseUrl && prefs.cloudPack.packKey) {
       initCloudSync(prefs.cloudPack);
@@ -1080,7 +1093,7 @@
     if (area !== "local") return;
     if (changes.highlightingEnabled) {
       isActive = changes.highlightingEnabled.newValue !== false;
-      console.log("[Context Scribe] Highlighting toggled globally:", isActive ? "ON" : "OFF");
+      console.log("[Vantage] Highlighting toggled globally:", isActive ? "ON" : "OFF");
       if (!isActive) closeActionBar();
     }
     if (changes.theme) {

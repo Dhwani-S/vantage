@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────
-   Context Scribe — Popup Script
+   Vantage — Popup Script
    ───────────────────────────────────────────── */
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -23,10 +23,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  const SVG_SUN  = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
-  const SVG_MOON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
-  const SVG_LOCK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
-  const SVG_EDIT = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+  const SVG_SUN  = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>`;
+  const SVG_MOON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`;
+  const SVG_EYE  = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  const SVG_EYE_OFF = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>`;
   function applyTheme(theme) {
     document.body.setAttribute("data-theme", theme);
     themeBtn.innerHTML = theme === "dark" ? SVG_SUN : SVG_MOON;
@@ -57,8 +57,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     checkbox.checked = active;
     container.classList.toggle("active", active);
-    icon.innerHTML = active ? SVG_EDIT : SVG_LOCK;
-    label.textContent = active ? "Highlighting enabled" : "Highlighting disabled";
+    icon.innerHTML = active ? SVG_EYE : SVG_EYE_OFF;
+    label.textContent = active ? "Overlay active" : "Overlay disabled";
   }
 
   // ── Load Stats ──────────────────────────────
@@ -93,13 +93,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       await chrome.scripting.executeScript({
         target: { tabId: currentTab.id },
         func: () => {
-          if (window.__contextScribeLoaded) {
+          if (window.__vantageLoaded) {
             document.dispatchEvent(new CustomEvent("cs-trigger-highlight"));
           }
         }
       });
     } catch (err) {
-      console.error("[Context Scribe] Could not inject script:", err);
+      console.error("[Vantage] Could not inject script:", err);
     }
 
     window.close();
@@ -212,11 +212,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
+  // Default role change (editors only)
+  document.getElementById("defaultRoleSelect").addEventListener("change", (e) => {
+    const newRole = e.target.value;
+    chrome.runtime.sendMessage({ action: "set-default-role", role: newRole }, (resp) => {
+      if (resp?.error) {
+        showCloudError(resp.error);
+      }
+    });
+  });
+
   function showConnectedUI(config) {
     cloudDisconnected.classList.add("hidden");
     cloudConnected.classList.remove("hidden");
     document.getElementById("cloudPackName").textContent = config.packName || "Cloud Pack";
     document.getElementById("cloudPackKey").textContent = config.packKey;
+
+    const role = config.role || "viewer";
+    const badge = document.getElementById("cloudRoleBadge");
+    badge.textContent = role;
+    badge.className = "cloud-role-badge role-" + role;
+
+    const roleSelector = document.getElementById("roleSelector");
+    if (role === "editor") {
+      roleSelector.classList.remove("hidden");
+    } else {
+      roleSelector.classList.add("hidden");
+    }
   }
 
   function showDisconnectedUI() {

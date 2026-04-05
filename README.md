@@ -13,7 +13,7 @@ Built with **Chrome Manifest V3**, plain JavaScript, and zero build tools.
 - Color picker action bar appears on text selection
 - Add **notes** to any highlight via a tooltip editor
 - Keyboard shortcut: `Alt + H` to quick-highlight
-- Right-click context menu: *"Highlight with Context Scribe"*
+- Right-click context menu: *"Annotate with Vantage"*
 - Works on SPAs (Single Page Applications) — detects URL changes automatically
 
 ### Dashboard

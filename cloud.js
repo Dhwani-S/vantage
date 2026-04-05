@@ -1,14 +1,22 @@
 /* ─────────────────────────────────────────────
-   Context Scribe — Cloud Sync (Firebase REST + SSE)
+   Vantage — Cloud Sync (Firebase REST + SSE)
    Zero-SDK real-time sync via Firebase Realtime Database
    ───────────────────────────────────────────── */
 
 // Exposed globally for content.js to consume
 // eslint-disable-next-line no-unused-vars
 class CloudSync {
+
+  static ROLES = Object.freeze({
+    VIEWER:    "viewer",
+    COMMENTOR: "commentor",
+    EDITOR:    "editor",
+  });
+
   constructor() {
     this._firebaseUrl = "";
     this._packKey = "";
+    this._role = CloudSync.ROLES.VIEWER;
     this._instanceId = this._generateInstanceId();
     this._eventSource = null;
     this._onHighlight = null;
@@ -21,9 +29,10 @@ class CloudSync {
      CONFIGURATION
      ════════════════════════════════════════════ */
 
-  configure(firebaseUrl, packKey) {
+  configure(firebaseUrl, packKey, role) {
     this._firebaseUrl = (firebaseUrl || "").replace(/\/+$/, "");
     this._packKey = packKey || "";
+    this._role = role || CloudSync.ROLES.VIEWER;
   }
 
   get isConfigured() {
@@ -32,6 +41,30 @@ class CloudSync {
 
   get packKey() {
     return this._packKey;
+  }
+
+  get role() {
+    return this._role;
+  }
+
+  /* ════════════════════════════════════════════
+     ROLE-BASED PERMISSIONS
+     ════════════════════════════════════════════ */
+
+  get canHighlight() {
+    return this._role === CloudSync.ROLES.COMMENTOR || this._role === CloudSync.ROLES.EDITOR;
+  }
+
+  get canDelete() {
+    return this._role === CloudSync.ROLES.EDITOR;
+  }
+
+  get canEditOthers() {
+    return this._role === CloudSync.ROLES.EDITOR;
+  }
+
+  get isOwner() {
+    return this._role === CloudSync.ROLES.EDITOR;
   }
 
   /* ════════════════════════════════════════════
@@ -72,6 +105,15 @@ class CloudSync {
     const meta = await resp.json();
     if (!meta) throw new Error("Pack not found");
     return meta;
+  }
+
+  async updateDefaultRole(newRole) {
+    if (!this.isConfigured) return;
+    const resp = await fetch(
+      `${this._firebaseUrl}/packs/${this._packKey}/meta/defaultRole.json`,
+      { method: "PUT", body: JSON.stringify(newRole) }
+    );
+    if (!resp.ok) throw new Error(`Firebase PUT failed: ${resp.status}`);
   }
 
   async fetchAllHighlightsForUrl(url) {

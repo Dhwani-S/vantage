@@ -1,46 +1,49 @@
 /* ─────────────────────────────────────────────
-   Context Scribe — Content Script Styles
-   Minimal tooltip, Dark + Light theme support
+   Vantage — Content Overlay Styles
+   Glassmorphism tooltips & action bar
    ───────────────────────────────────────────── */
 
-/* ── Highlights (theme-independent) ────────────── */
+/* ── Highlights ───────────────────────────────── */
 .cs-highlight {
-  background-color: #ffe066 !important;
+  background-color: rgba(250, 204, 21, 0.28) !important;
   border-radius: 2px;
   cursor: pointer;
   transition: background-color 0.15s ease;
   position: relative;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  border-bottom: 1.5px solid rgba(250, 204, 21, 0.5);
 }
 .cs-highlight:hover {
-  background-color: #ffd633 !important;
+  background-color: rgba(250, 204, 21, 0.45) !important;
 }
 
-.cs-highlight.cs-color-green       { background-color: #b2f2bb !important; }
-.cs-highlight.cs-color-green:hover { background-color: #8ce99a !important; }
-.cs-highlight.cs-color-blue        { background-color: #a5d8ff !important; }
-.cs-highlight.cs-color-blue:hover  { background-color: #74c0fc !important; }
-.cs-highlight.cs-color-pink        { background-color: #fcc2d7 !important; }
-.cs-highlight.cs-color-pink:hover  { background-color: #f783ac !important; }
-.cs-highlight.cs-color-orange      { background-color: #ffd8a8 !important; }
-.cs-highlight.cs-color-orange:hover{ background-color: #ffc078 !important; }
+.cs-highlight.cs-color-green       { background-color: rgba(52, 211, 153, 0.25) !important; border-bottom-color: rgba(52, 211, 153, 0.5); }
+.cs-highlight.cs-color-green:hover { background-color: rgba(52, 211, 153, 0.4) !important; }
+.cs-highlight.cs-color-blue        { background-color: rgba(96, 165, 250, 0.25) !important; border-bottom-color: rgba(96, 165, 250, 0.5); }
+.cs-highlight.cs-color-blue:hover  { background-color: rgba(96, 165, 250, 0.4) !important; }
+.cs-highlight.cs-color-pink        { background-color: rgba(244, 114, 182, 0.25) !important; border-bottom-color: rgba(244, 114, 182, 0.5); }
+.cs-highlight.cs-color-pink:hover  { background-color: rgba(244, 114, 182, 0.4) !important; }
+.cs-highlight.cs-color-orange      { background-color: rgba(251, 146, 60, 0.25) !important; border-bottom-color: rgba(251, 146, 60, 0.5); }
+.cs-highlight.cs-color-orange:hover{ background-color: rgba(251, 146, 60, 0.4) !important; }
 
 /* ══════════════════════════════════════════════
-   TOOLTIP — Minimal Dark (default)
+   TOOLTIP — Glassmorphism Dark (default)
    ══════════════════════════════════════════════ */
 .cs-tooltip {
   position: absolute;
   z-index: 2147483647;
-  background: #1a1b1e;
-  color: #c1c2c5;
-  border: 1px solid #373a40;
-  border-radius: 10px;
-  padding: 8px 10px;
-  min-width: 240px;
-  max-width: 320px;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.35);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: rgba(9, 9, 11, 0.85);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+  min-width: 260px;
+  max-width: 340px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13px;
   line-height: 1.5;
   animation: cs-fadeIn 0.15s ease;
@@ -49,13 +52,13 @@
 .cs-tooltip::before {
   content: '';
   position: absolute;
-  top: -6px;
-  left: 20px;
+  top: -5px;
+  left: 24px;
   width: 10px;
   height: 10px;
-  background: #1a1b1e;
-  border-left: 1px solid #373a40;
-  border-top: 1px solid #373a40;
+  background: rgba(9, 9, 11, 0.85);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   transform: rotate(45deg);
 }
 
@@ -64,163 +67,187 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #373a40;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .cs-tooltip-header-right {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
 }
 
 .cs-tooltip-title {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #ffe066;
+  letter-spacing: 0.8px;
+  color: #818cf8;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
 
-/* ── Icon Buttons (shared) ───────────────────── */
+/* ── Icon Buttons ────────────────────────────── */
 .cs-icon-btn {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 14px;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 5px;
-  transition: background 0.12s;
+  border-radius: 6px;
+  transition: all 0.12s ease;
   padding: 0;
-  color: #909296;
+  color: #71717a;
 }
 .cs-icon-btn:hover {
-  background: #25262b;
+  background: rgba(255, 255, 255, 0.06);
+  color: #a1a1aa;
+}
+.cs-icon-btn.cs-delete:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+.cs-icon-btn.cs-save:hover {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.1);
 }
 
 /* ── Textarea ────────────────────────────────── */
 .cs-tooltip textarea {
   width: 100%;
-  min-height: 44px;
-  background: #25262b;
-  color: #c1c2c5;
-  border: 1px solid #373a40;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-family: inherit;
-  font-size: 12px;
+  min-height: 48px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12.5px;
   line-height: 1.5;
   resize: vertical;
   box-sizing: border-box;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s ease;
 }
 .cs-tooltip textarea:focus {
-  border-color: #ffe066;
+  border-color: rgba(129, 140, 248, 0.5);
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.1);
 }
 .cs-tooltip textarea::placeholder {
-  color: #5c5f66;
+  color: #52525b;
+}
+.cs-tooltip textarea[readonly] {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* ══════════════════════════════════════════════
-   ACTION BAR — Dark (default)
+   ACTION BAR — Glassmorphism Dark (default)
    ══════════════════════════════════════════════ */
 .cs-action-bar {
   position: absolute;
   z-index: 2147483646;
   display: flex;
-  gap: 4px;
-  background: #1a1b1e;
-  border: 1px solid #373a40;
-  border-radius: 8px;
+  gap: 2px;
+  background: rgba(9, 9, 11, 0.88);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
   padding: 6px 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-  animation: cs-fadeIn 0.12s ease;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: cs-fadeIn 0.1s ease;
 }
 
 .cs-action-bar button {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 16px;
-  transition: background 0.12s;
+  padding: 5px 7px;
+  border-radius: 6px;
+  transition: all 0.12s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .cs-action-bar button:hover {
-  background: #25262b;
+  background: rgba(255, 255, 255, 0.08);
+  transform: scale(1.1);
 }
 
 .cs-color-dot {
   display: inline-block;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 2px solid transparent;
   cursor: pointer;
-  transition: transform 0.1s;
+  transition: all 0.12s ease;
 }
 .cs-color-dot:hover {
-  transform: scale(1.25);
-  border-color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 8px currentColor;
 }
 
 /* ══════════════════════════════════════════════
    LIGHT THEME OVERRIDES
    ══════════════════════════════════════════════ */
 
-/* Tooltip */
 .cs-tooltip.cs-light {
-  background: #ffffff;
-  color: #212529;
-  border: 1px solid #dee2e6;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.1);
+  background: rgba(255, 255, 255, 0.88);
+  color: #18181b;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
 }
 .cs-tooltip.cs-light::before {
-  background: #ffffff;
-  border-left: 1px solid #dee2e6;
-  border-top: 1px solid #dee2e6;
+  background: rgba(255, 255, 255, 0.88);
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 .cs-tooltip.cs-light .cs-tooltip-header {
-  border-bottom: 1px solid #e9ecef;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 .cs-tooltip.cs-light .cs-tooltip-title {
-  color: #e8a317;
+  color: #6366f1;
 }
 .cs-tooltip.cs-light .cs-icon-btn {
-  color: #868e96;
+  color: #a1a1aa;
 }
 .cs-tooltip.cs-light .cs-icon-btn:hover {
-  background: #f1f3f5;
+  background: rgba(0, 0, 0, 0.04);
+  color: #52525b;
+}
+.cs-tooltip.cs-light .cs-icon-btn.cs-delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+.cs-tooltip.cs-light .cs-icon-btn.cs-save:hover {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
 }
 .cs-tooltip.cs-light textarea {
-  background: #f8f9fa;
-  color: #212529;
-  border: 1px solid #dee2e6;
+  background: rgba(0, 0, 0, 0.03);
+  color: #18181b;
+  border: 1px solid rgba(0, 0, 0, 0.08);
 }
 .cs-tooltip.cs-light textarea:focus {
-  border-color: #e8a317;
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.08);
 }
 .cs-tooltip.cs-light textarea::placeholder {
-  color: #adb5bd;
+  color: #a1a1aa;
 }
 
-/* Action Bar */
 .cs-action-bar.cs-light {
-  background: #ffffff;
-  border: 1px solid #dee2e6;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
 }
 .cs-action-bar.cs-light button:hover {
-  background: #f1f3f5;
-}
-.cs-action-bar.cs-light .cs-color-dot:hover {
-  border-color: #212529;
+  background: rgba(0, 0, 0, 0.04);
 }
 
 @keyframes cs-fadeIn {

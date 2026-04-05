@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────
-   Context Scribe — Dashboard Script
+   Vantage — Dashboard Script
    Full-screen management: view, group, search,
    harvest markdown, export/import packs
    ───────────────────────────────────────────── */
@@ -12,6 +12,7 @@
   let filterDomain = null;
   let searchQuery = "";
   let selectedIds = new Set();
+  let cloudRole = null;      // null = no cloud, "viewer" | "commentor" | "editor"
 
   /* ════════════════════════════════════════════
      INIT
@@ -31,13 +32,13 @@
     });
   }
 
-  const SVG_SUN  = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
-  const SVG_MOON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
-  const SVG_TRASH = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
-  const SVG_COPY = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-  const SVG_LINK = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
-  const SVG_SCROLL = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14"/><path d="M4 19h16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
-  const SVG_CLOUD_SM = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>`;
+  const SVG_SUN  = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>`;
+  const SVG_MOON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`;
+  const SVG_TRASH = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
+  const SVG_COPY = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+  const SVG_LINK = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>`;
+  const SVG_HIGHLIGHTER = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>`;
+  const SVG_CLOUD_SM = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>`;
 
   function applyTheme(theme) {
     document.body.setAttribute("data-theme", theme);
@@ -48,10 +49,20 @@
     }
   }
 
+  function canDeleteHighlight(h) {
+    if (!cloudRole) return true;
+    if (cloudRole === "editor") return true;
+    if (cloudRole === "commentor") return !h._cloud;
+    return false; // viewer
+  }
+
   function loadData() {
-    chrome.runtime.sendMessage({ action: "get-all-highlights" }, (data) => {
-      allData = data || {};
-      render();
+    chrome.runtime.sendMessage({ action: "get-cloud-status" }, (status) => {
+      cloudRole = (status && status.role) ? status.role : null;
+      chrome.runtime.sendMessage({ action: "get-all-highlights" }, (data) => {
+        allData = data || {};
+        render();
+      });
     });
     loadCloudStatus();
   }
@@ -61,12 +72,16 @@
       const container = document.getElementById("cloudStatusContent");
       if (!container) return;
       if (status && status.packKey) {
+        const role = status.role || "viewer";
+        const roleColors = { viewer: "#868e96", commentor: "#51cf66", editor: "#ffe066" };
+        const roleColor = roleColors[role] || "#868e96";
         container.innerHTML = `
           <div class="cloud-connected-info">
             <span class="cloud-live-dot"></span>
-            <span class="cloud-pack-label">${escapeHTML(status.packName || "Cloud Pack")}</span>
+            <span class="cloud-pack-label">${escapeHTML(status.packName || "Shared POV")}</span>
           </div>
           <code class="cloud-room-key">${escapeHTML(status.packKey)}</code>
+          <span class="cloud-role-tag" style="color:${roleColor};border-color:${roleColor}">${role}</span>
         `;
       } else {
         container.innerHTML = `<span class="cloud-offline">Not connected</span>`;
@@ -115,6 +130,19 @@
     // Delete Selected
     document.getElementById("btnDeleteSelected").addEventListener("click", deleteSelected);
 
+    // Clear All
+    document.getElementById("btnClearAll").addEventListener("click", () => {
+      if (!confirm("This will delete ALL local annotations and disconnect from the cloud room. Continue?")) return;
+      chrome.runtime.sendMessage({ action: "clear-all-data" }, () => {
+        allData = {};
+        cloudRole = null;
+        selectedIds.clear();
+        render();
+        loadCloudStatus();
+        toast("All data cleared!");
+      });
+    });
+
     // Harvest Markdown
     document.getElementById("btnHarvest").addEventListener("click", harvestMarkdown);
 
@@ -146,7 +174,7 @@
       const blob = new Blob([document.getElementById("mdOutput").value], { type: "text/markdown" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `context-scribe-${new Date().toISOString().slice(0,10)}.md`;
+      a.download = `vantage-${new Date().toISOString().slice(0,10)}.md`;
       a.click();
       URL.revokeObjectURL(a.href);
       toast("Downloaded!");
@@ -212,7 +240,7 @@
     if (flat.length === 0) {
       content.innerHTML = "";
       content.appendChild(createEmptyState());
-      document.getElementById("viewTitle").textContent = "All Highlights";
+      document.getElementById("viewTitle").textContent = "All Annotations";
       return;
     }
 
@@ -226,7 +254,7 @@
       document.getElementById("viewTitle").textContent = "By Date";
     } else {
       html = flat.map(h => cardHTML(h)).join("");
-      document.getElementById("viewTitle").textContent = "All Highlights";
+      document.getElementById("viewTitle").textContent = "All Annotations";
     }
 
     content.innerHTML = html;
@@ -296,6 +324,8 @@
     `).join("");
   }
 
+  const SVG_LOCK_SM = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+
   function cardHTML(h) {
     const date = new Date(h.createdAt).toLocaleString();
     const colorClass = h.color && h.color !== "yellow" ? ` color-${h.color}` : "";
@@ -303,13 +333,18 @@
     const selectedClass = selectedIds.has(h.id) ? " selected" : "";
     const safeUrl = escapeAttr(h.url);
     const safeTitle = escapeHTML(h.title || h.url);
+    const deletable = canDeleteHighlight(h);
 
     const cloudBadge = h._cloud
       ? `<span class="card-cloud-badge" title="Synced from cloud">${SVG_CLOUD_SM} shared</span>`
       : "";
 
+    const accessBadge = !deletable
+      ? `<span class="card-readonly-badge" title="Read-only — your role cannot delete this">${SVG_LOCK_SM} read-only</span>`
+      : "";
+
     return `
-      <div class="highlight-card${selectedClass}" data-id="${escapeAttr(h.id)}" data-url="${safeUrl}">
+      <div class="highlight-card${selectedClass}${!deletable ? " readonly" : ""}" data-id="${escapeAttr(h.id)}" data-url="${safeUrl}" data-deletable="${deletable}">
         <input type="checkbox" class="card-checkbox"${checked} />
         <div class="card-body">
           <div class="card-text${colorClass}">${escapeHTML(h.text)}</div>
@@ -318,11 +353,12 @@
             <a href="${safeUrl}" target="_blank" title="${safeUrl}">${safeTitle}</a>
             <span>${date}</span>
             ${cloudBadge}
+            ${accessBadge}
           </div>
         </div>
         <div class="card-actions">
           <button class="card-action-btn" data-action="copy-link" title="Copy link">${SVG_COPY}</button>
-          <button class="card-action-btn" data-action="delete" title="Delete">${SVG_TRASH}</button>
+          ${deletable ? `<button class="card-action-btn" data-action="delete" title="Delete">${SVG_TRASH}</button>` : ""}
           <button class="card-action-btn" data-action="visit" title="Visit page">${SVG_LINK}</button>
         </div>
       </div>
@@ -380,14 +416,33 @@
 
   function updateDeleteBtn() {
     const btn = document.getElementById("btnDeleteSelected");
-    btn.disabled = selectedIds.size === 0;
-    btn.textContent = selectedIds.size > 0
-      ? `Delete Selected (${selectedIds.size})`
-      : "Delete Selected";
+    if (selectedIds.size === 0) {
+      btn.disabled = true;
+      btn.textContent = "Delete Selected";
+      return;
+    }
+    const selectedCards = document.querySelectorAll(".highlight-card.selected");
+    const deletableCount = [...selectedCards].filter(c => c.dataset.deletable === "true").length;
+    const readonlyCount = selectedIds.size - deletableCount;
+
+    if (deletableCount === 0) {
+      btn.disabled = true;
+      btn.textContent = `Read-only (${readonlyCount})`;
+    } else {
+      btn.disabled = false;
+      btn.textContent = readonlyCount > 0
+        ? `Delete ${deletableCount} (${readonlyCount} read-only)`
+        : `Delete Selected (${deletableCount})`;
+    }
   }
 
   function deleteHighlight(url, id) {
     if (!allData[url]) return;
+    const h = allData[url].find(h => h.id === id);
+    if (h && !canDeleteHighlight(h)) {
+      toast("Cannot delete — read-only");
+      return;
+    }
     allData[url] = allData[url].filter(h => h.id !== id);
     if (allData[url].length === 0) delete allData[url];
     selectedIds.delete(id);
@@ -396,14 +451,25 @@
 
   function deleteSelected() {
     if (selectedIds.size === 0) return;
-    const count = selectedIds.size;
+    const deletableIds = new Set();
     for (const url of Object.keys(allData)) {
-      allData[url] = allData[url].filter(h => !selectedIds.has(h.id));
+      for (const h of allData[url]) {
+        if (selectedIds.has(h.id) && canDeleteHighlight(h)) {
+          deletableIds.add(h.id);
+        }
+      }
+    }
+    if (deletableIds.size === 0) {
+      toast("No deletable items selected");
+      return;
+    }
+    for (const url of Object.keys(allData)) {
+      allData[url] = allData[url].filter(h => !deletableIds.has(h.id));
       if (allData[url].length === 0) delete allData[url];
     }
     selectedIds.clear();
     saveAndRender();
-    toast(`Deleted ${count} highlight${count !== 1 ? "s" : ""}!`);
+    toast(`Deleted ${deletableIds.size} annotation${deletableIds.size !== 1 ? "s" : ""}!`);
   }
 
   function saveAndRender() {
@@ -429,7 +495,7 @@
     if (flat.length === 0) { toast("No highlights to harvest!"); return; }
 
     const grouped = groupByDomain(flat);
-    let md = `# Context Scribe — Harvested Notes\n`;
+    let md = `# Vantage — Harvested Notes\n`;
     md += `> Exported on ${new Date().toLocaleString()}\n\n`;
     md += `---\n\n`;
 
@@ -492,7 +558,7 @@
     }
 
     const pack = {
-      _format: "context-scribe-pack",
+      _format: "vantage-pack",
       _version: "1.0",
       _exportedAt: new Date().toISOString(),
       _author: "anonymous",
@@ -507,7 +573,7 @@
       : filterDomain
         ? `pack-${filterDomain}`
         : "pack-all";
-    a.download = `context-scribe-${label}-${Date.now()}.cscribe`;
+    a.download = `vantage-${label}-${Date.now()}.cscribe`;
     a.click();
     URL.revokeObjectURL(a.href);
 
@@ -525,7 +591,7 @@
         const raw = JSON.parse(ev.target.result);
         let packData;
 
-        if (raw._format === "context-scribe-pack" && raw.highlights) {
+        if ((raw._format === "vantage-pack" || raw._format === "context-scribe-pack") && raw.highlights) {
           packData = raw.highlights;
         } else if (typeof raw === "object" && !Array.isArray(raw)) {
           // Plain { url: [highlights] } format
@@ -570,9 +636,9 @@
     el.className = "empty-state";
     el.id = "emptyState";
     el.innerHTML = `
-      <div class="empty-icon">${SVG_SCROLL}</div>
-      <h3>No highlights yet</h3>
-      <p>Start highlighting text on any webpage to see it here.<br/>Use <kbd>Alt+H</kbd> or right-click → Highlight.</p>
+      <div class="empty-icon">${SVG_HIGHLIGHTER}</div>
+      <h3>No annotations yet</h3>
+      <p>Start annotating text on any webpage to build your shared POV.<br/>Use <kbd>Alt+H</kbd> or right-click to annotate.</p>
     `;
     return el;
   }

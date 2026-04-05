@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Context Scribe</title>
+  <title>Vantage</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -12,15 +12,15 @@
     <div class="popup-header">
       <div class="logo">
         <span class="logo-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14"/><path d="M4 19h16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
         </span>
         <div>
-          <h1>Context Scribe</h1>
-          <p class="tagline">The Sovereign Scholar</p>
+          <h1>Vantage</h1>
+          <p class="tagline">shared pov</p>
         </div>
       </div>
       <button class="theme-toggle" id="themeToggle" title="Toggle theme">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
       </button>
     </div>
 
@@ -28,9 +28,9 @@
     <div class="page-toggle" id="pageToggleContainer">
       <div class="toggle-info">
         <span class="toggle-icon" id="toggleIcon">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
         </span>
-        <span class="toggle-label" id="toggleLabel">Highlighting off</span>
+        <span class="toggle-label" id="toggleLabel">Overlay off</span>
       </div>
       <label class="switch">
         <input type="checkbox" id="pageToggle" />
@@ -42,7 +42,7 @@
     <div class="stats-row">
       <div class="stat">
         <span class="stat-value" id="totalHighlights">0</span>
-        <span class="stat-label">Highlights</span>
+        <span class="stat-label">Annotations</span>
       </div>
       <div class="stat">
         <span class="stat-value" id="totalPages">0</span>
@@ -57,11 +57,11 @@
     <!-- Actions -->
     <div class="actions">
       <button id="btnHighlight" class="action-btn primary">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-        Highlight Selected Text
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+        Annotate Selection
       </button>
       <button id="btnDashboard" class="action-btn secondary">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
         Open Dashboard
       </button>
     </div>
@@ -69,19 +69,19 @@
     <!-- Cloud Pack -->
     <div class="cloud-section">
       <div class="cloud-header">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-        <span>Cloud Pack</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></svg>
+        <span>Shared POV</span>
       </div>
 
       <!-- Disconnected state -->
       <div id="cloudDisconnected">
-        <input type="text" id="firebaseUrl" class="cloud-input" placeholder="Firebase Database URL" />
+        <input type="text" id="firebaseUrl" class="cloud-input" placeholder="Database URL" />
         <div class="cloud-btn-row">
-          <button id="btnCreatePack" class="cloud-btn create">Create Pack</button>
-          <button id="btnShowJoin" class="cloud-btn join">Join Pack</button>
+          <button id="btnCreatePack" class="cloud-btn create">Create Room</button>
+          <button id="btnShowJoin" class="cloud-btn join">Join Room</button>
         </div>
         <div id="joinFields" class="join-fields hidden">
-          <input type="text" id="joinKey" class="cloud-input" placeholder="Room key (e.g. CS-A1B2-C3D4)" />
+          <input type="text" id="joinKey" class="cloud-input" placeholder="Room key (CS-XXXX-XXXX)" />
           <button id="btnJoinPack" class="cloud-btn join">Connect</button>
         </div>
       </div>
@@ -90,18 +90,28 @@
       <div id="cloudConnected" class="hidden">
         <div class="cloud-status">
           <span class="cloud-dot"></span>
-          <span class="cloud-pack-name" id="cloudPackName">—</span>
+          <span class="cloud-pack-name" id="cloudPackName">&mdash;</span>
+          <span class="cloud-role-badge" id="cloudRoleBadge">viewer</span>
         </div>
         <div class="cloud-key-row">
-          <code id="cloudPackKey" class="cloud-key" title="Click to copy">—</code>
+          <code id="cloudPackKey" class="cloud-key" title="Click to copy">&mdash;</code>
           <button id="btnLeavePack" class="cloud-btn leave">Leave</button>
+        </div>
+        <!-- Role selector (editors only) -->
+        <div id="roleSelector" class="role-selector hidden">
+          <span class="role-label">Join as:</span>
+          <select id="defaultRoleSelect" class="role-select">
+            <option value="viewer">Viewer (read only)</option>
+            <option value="commentor" selected>Commentor (annotate)</option>
+            <option value="editor">Editor (full access)</option>
+          </select>
         </div>
       </div>
     </div>
 
     <!-- Shortcut hint -->
     <div class="shortcut-hint">
-      <kbd>Alt</kbd> + <kbd>H</kbd> to quick-highlight
+      <kbd>Alt</kbd> + <kbd>H</kbd> quick-annotate
     </div>
   </div>
   <script src="popup.js"></script>

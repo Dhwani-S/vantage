@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Context Scribe — The Sovereign Scholar",
-  "version": "1.0.0",
-  "description": "A local-first, peer-to-peer web annotation tool. Highlight, organize, and share technical knowledge without the cloud.",
+  "name": "Vantage — Shared POV",
+  "version": "1.1.0",
+  "description": "A shared point-of-view overlay for engineers to annotate the web. Highlight, organize, and share technical knowledge in real time.",
   "permissions": [
     "storage",
     "activeTab",
@@ -42,7 +42,7 @@
       "suggested_key": {
         "default": "Alt+H"
       },
-      "description": "Highlight selected text"
+      "description": "Annotate selected text"
     }
   }
 }

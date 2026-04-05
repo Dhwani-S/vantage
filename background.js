@@ -1,18 +1,18 @@
 /* ─────────────────────────────────────────────
-   Context Scribe — Background Service Worker
+   Vantage — Background Service Worker
    ───────────────────────────────────────────── */
 
 // ── Context Menu ──────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
-    id: "context-scribe-highlight",
-    title: "Highlight with Context Scribe",
+    id: "vantage-annotate",
+    title: "Annotate with Vantage",
     contexts: ["selection"]
   });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "context-scribe-highlight" && tab?.id) {
+  if (info.menuItemId === "vantage-annotate" && tab?.id) {
     chrome.tabs.sendMessage(tab.id, { action: "highlight-selection" });
   }
 });
@@ -89,7 +89,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     ).join("");
     const packKey = `CS-${block()}-${block()}`;
 
-    const meta = { name: name || "Untitled Pack", createdAt: new Date().toISOString() };
+    const meta = {
+      name: name || "Untitled Pack",
+      createdAt: new Date().toISOString(),
+      defaultRole: "commentor",
+    };
 
     fetch(`${url}/packs/${packKey}/meta.json`, {
       method: "PUT",
@@ -97,7 +101,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })
       .then(resp => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const config = { firebaseUrl: url, packKey, packName: meta.name };
+        const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor" };
         chrome.storage.local.set({ cloudPack: config }, () => {
           sendResponse({ ok: true, config });
         });
@@ -118,7 +122,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
       .then(meta => {
         if (!meta) throw new Error("Pack not found");
-        const config = { firebaseUrl: url, packKey, packName: meta.name || packKey };
+        const role = meta.defaultRole || "viewer";
+        const config = { firebaseUrl: url, packKey, packName: meta.name || packKey, role };
         chrome.storage.local.set({ cloudPack: config }, () => {
           sendResponse({ ok: true, config });
         });
@@ -134,9 +139,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "set-default-role") {
+    chrome.storage.local.get("cloudPack", (data) => {
+      const config = data.cloudPack;
+      if (!config || config.role !== "editor") {
+        sendResponse({ error: "Only the pack editor can change roles" });
+        return;
+      }
+      const newRole = msg.role;
+      if (!["viewer", "commentor", "editor"].includes(newRole)) {
+        sendResponse({ error: "Invalid role" });
+        return;
+      }
+      const url = config.firebaseUrl;
+      fetch(`${url}/packs/${config.packKey}/meta/defaultRole.json`, {
+        method: "PUT",
+        body: JSON.stringify(newRole),
+      })
+        .then(resp => {
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          sendResponse({ ok: true, role: newRole });
+        })
+        .catch(err => sendResponse({ error: err.message }));
+    });
+    return true;
+  }
+
   if (msg.action === "get-cloud-status") {
     chrome.storage.local.get("cloudPack", (data) => {
       sendResponse(data.cloudPack || null);
+    });
+    return true;
+  }
+
+  if (msg.action === "clear-all-data") {
+    chrome.storage.local.remove(["highlights", "cloudPack"], () => {
+      sendResponse({ ok: true });
     });
     return true;
   }
