@@ -1,6 +1,6 @@
-# Vantage — Real-Time Collaborative Web Highlighter
+# Vantage — Shared POV
 
-**Vantage** (formerly *Context Scribe — The Sovereign Scholar*) is a Chrome extension that lets you highlight, annotate, and share text on any webpage. It works locally out of the box, and optionally syncs highlights in real-time across users via Firebase — no accounts, no servers to maintain.
+**Vantage** is a Chrome extension that lets engineers annotate, highlight, and share a point-of-view overlay on any webpage. It works locally out of the box, and optionally syncs highlights in real-time across users via Firebase — no accounts, no servers to maintain.
 
 Built with **Chrome Manifest V3**, plain JavaScript, and zero build tools.
 
@@ -8,40 +8,50 @@ Built with **Chrome Manifest V3**, plain JavaScript, and zero build tools.
 
 ## Features
 
-### Highlighting
+### Annotations
 - Select text on any webpage and highlight it in **5 colors** (yellow, green, blue, pink, orange)
 - Color picker action bar appears on text selection
 - Add **notes** to any highlight via a tooltip editor
 - Keyboard shortcut: `Alt + H` to quick-highlight
 - Right-click context menu: *"Annotate with Vantage"*
-- Works on SPAs (Single Page Applications) — detects URL changes automatically
+- Works on SPAs (LinkedIn, Twitter, etc.) — detects URL changes automatically
+
+### Role-Based Access
+- **Viewer** — read-only access to shared annotations
+- **Commentor** — can create highlights and add notes
+- **Editor** — full access including edit and delete
+- Read-only badges shown in dashboard; delete actions gated by role
 
 ### Dashboard
-- Full-screen management view for all your highlights
+- Full-screen management view for all your annotations
 - Group by **domain** or **date**, or view all
 - **Search** across highlight text, notes, URLs, and page titles
-- Select and **bulk-delete** highlights
-- **Harvest Markdown** — export all highlights as a formatted `.md` file
-- Domain sidebar with highlight counts
+- Select and **bulk-delete** annotations (respects role permissions)
+- **Harvest Markdown** — export all annotations as a formatted `.md` file
+- Domain sidebar with annotation counts
+- **Clear All** button for fresh starts (wipes local data + disconnects cloud)
 
 ### Knowledge Packs (Offline Sharing)
-- **Export Pack** — save selected (or all) highlights as a `.cscribe` JSON file
-- **Import Pack** — load a colleague's pack file to merge their highlights with yours
+- **Export Pack** — save selected (or all) annotations as a `.cscribe` JSON file
+- **Import Pack** — load a colleague's pack file to merge their annotations with yours
 - Deduplication by highlight ID prevents duplicates on re-import
-- Import multiple packs sequentially — they stack cleanly
 
-### Cloud Packs (Real-Time Sync)
-- **Create a Cloud Pack** — generates a room key like `CS-A1B2-C3D4`
-- **Join a Cloud Pack** — enter a room key to subscribe
+### Cloud Rooms (Real-Time Sync)
+- **Create a Room** — generates a room key like `CS-A1B2-C3D4`
+- **Join a Room** — enter a room key to subscribe
 - Real-time sync via **Firebase Realtime Database REST API + Server-Sent Events**
 - Zero SDK — uses only native `fetch()` and `EventSource` APIs
-- When User A highlights text, User B sees it painted on their screen **instantly** (if on the same URL)
-- Notes sync to the cloud too
-- Cloud highlights marked with a "shared" badge in the dashboard
+- Cloud annotations are proactively fetched on room join and SPA navigation
+- Deferred painting with retry for SPAs that render content asynchronously
+- Cloud annotations marked with a "shared" badge in the dashboard
 - Cloud is **opt-in** — the extension works fully offline without any Firebase config
 
-### Theming
+### Design
+- **Minimalist & technical** aesthetic (inspired by Linear/Vercel)
+- **Glassmorphism** — semi-transparent `backdrop-blur` overlays for tooltips and sidebars
 - Dark mode (default) and light mode
+- Monospace fonts for technical metadata; clean sans-serif for UI text
+- Lucide-style SVG icons throughout
 - Theme syncs across popup, dashboard, and in-page tooltips
 
 ---
@@ -80,20 +90,20 @@ Press `Alt + H` with text selected to instantly highlight in yellow.
 
 ### Dashboard
 
-Click **Open Dashboard** in the popup (or the extension icon menu) to manage all your highlights across all pages.
+Click **Open Dashboard** in the popup to manage all your annotations across all pages.
 
 ### Export & Import Packs
 
 1. In the Dashboard, click **Export Pack** to download a `.cscribe` file
 2. Share this file with colleagues
 3. They click **Import Pack** in their Dashboard and select the file
-4. Highlights merge automatically — no duplicates
+4. Annotations merge automatically — no duplicates
 
 ---
 
-## Cloud Packs Setup (Optional)
+## Cloud Rooms Setup (Optional)
 
-Cloud Packs enable real-time collaborative highlighting. You need a free Firebase project.
+Cloud Rooms enable real-time collaborative annotating. You need a free Firebase project.
 
 ### 1. Create a Firebase Project
 
@@ -121,14 +131,14 @@ Click **Publish**. (These are open rules for development — add authentication 
 
 1. Copy your database URL from the Realtime Database page (e.g. `https://your-project-default-rtdb.firebaseio.com`)
 2. Open the Vantage popup
-3. Paste the URL in the **Cloud Pack** section
-4. Click **Create Pack** to generate a room key
+3. Paste the URL in the **Shared POV** section
+4. Click **Create Room** to generate a room key
 
 ### 4. Invite Collaborators
 
 1. Share your room key (e.g. `CS-A1B2-C3D4`) with teammates
-2. They install the extension, paste the same Firebase URL, click **Join Pack**, and enter the key
-3. Now any highlight on a matching URL syncs live across all participants
+2. They install the extension, paste the same Firebase URL, click **Join Room**, and enter the key
+3. Now any annotation on a matching URL syncs live across all participants
 
 ---
 
@@ -137,34 +147,36 @@ Click **Publish**. (These are open rules for development — add authentication 
 ```
 vantage/
 ├── manifest.json          # Chrome MV3 manifest
-├── background.js          # Service worker — message router, cloud pack CRUD
+├── background.js          # Service worker — message router, room CRUD, role mgmt
 ├── cloud.js               # Firebase REST + SSE client (CloudSync class)
-├── content.js             # Content script — highlighting, painting, tooltips
-├── content.css            # Highlight & tooltip styles
+├── content.js             # Content script — highlighting, painting, tooltips, cloud sync
+├── content.css            # Highlight & tooltip styles (glassmorphism)
 ├── popup/
 │   ├── popup.html         # Extension popup UI
-│   ├── popup.js           # Popup logic — stats, toggle, cloud pack controls
+│   ├── popup.js           # Popup logic — stats, toggle, cloud room controls
 │   └── popup.css          # Popup styles
 ├── dashboard/
 │   ├── dashboard.html     # Full-screen dashboard
-│   ├── dashboard.js       # Dashboard logic — grouping, search, export/import
+│   ├── dashboard.js       # Dashboard logic — grouping, search, export/import, roles
 │   └── dashboard.css      # Dashboard styles
-└── icons/                 # Extension icons (16, 48, 128px)
+└── icons/                 # Extension icons (16, 48, 128px SVG-derived)
 ```
 
 ### How Cloud Sync Works
 
 ```
-User A highlights text
+User A annotates text
   → content.js saves locally (chrome.storage)
   → cloud.js PUTs to Firebase REST API
   → Firebase streams SSE event to all subscribers
   → User B's content.js receives the event
-  → Paints the highlight on their page instantly
+  → Saves to local storage immediately
+  → Paints the highlight (with retries for SPA content)
 ```
 
 - The **content script** manages the SSE connection (alive as long as the tab is open)
 - The **service worker** handles room creation/joining (ephemeral, per MV3 design)
+- **Proactive fetch** on init and SPA navigation ensures existing highlights are loaded
 - No SDK, no WebSocket library — just `fetch()` and `EventSource`
 
 ---
@@ -178,7 +190,8 @@ User A highlights text
 | Storage | `chrome.storage.local` |
 | Cloud Sync | Firebase Realtime Database REST API |
 | Real-Time | Server-Sent Events (SSE) via `EventSource` |
-| Styling | Plain CSS with CSS custom properties (dark/light theme) |
+| Styling | CSS with custom properties, `backdrop-filter` glassmorphism |
+| Icons | Lucide-style inline SVGs |
 
 ---
 
