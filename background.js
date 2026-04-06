@@ -2,6 +2,21 @@
    Vantage — Background Service Worker
    ───────────────────────────────────────────── */
 
+// URL encoding for Firebase keys (same as CloudSync.encodeUrlKey)
+function encodeUrlKey(url) {
+  try {
+    return btoa(unescape(encodeURIComponent(url)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  } catch {
+    return btoa(url)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  }
+}
+
 // ── Context Menu ──────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -593,6 +608,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Delete a cloud highlight using current cloudPack config (called from dashboard)
+  if (msg.action === "delete-cloud-highlight") {
+    const { url: highlightUrl, id } = msg;
+    console.log("[Vantage BG] delete-cloud-highlight:", highlightUrl, id);
+    chrome.storage.local.get("cloudPack", (data) => {
+      const config = data.cloudPack;
+      if (!config || config.role !== "editor") {
+        console.log("[Vantage BG] Cannot delete - not editor, role:", config?.role);
+        sendResponse({ ok: false, error: "Not an editor" });
+        return;
+      }
+      const urlHash = encodeUrlKey(highlightUrl);
+      const fbUrl = config.firebaseUrl.replace(/\/+$/, "");
+      const deleteUrl = `${fbUrl}/packs/${config.packKey}/highlights/${urlHash}/${id}.json`;
+      console.log("[Vantage BG] Deleting from cloud:", deleteUrl);
+      fetch(deleteUrl, {
+        method: "DELETE",
+      })
+        .then(resp => {
+          console.log("[Vantage BG] Cloud delete response:", resp.ok, resp.status);
+          sendResponse({ ok: resp.ok });
+        })
+        .catch((err) => {
+          console.log("[Vantage BG] Cloud delete error:", err);
+          sendResponse({ ok: false });
+        });
+    });
+    return true;
+  }
+
   if (msg.action === "write-presence") {
     const { firebaseUrl, packKey, payload } = msg;
     const windowId = sender?.tab?.windowId;
@@ -722,6 +767,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.remove(["highlights", "cloudPack", "roomHistory", "roomCreatorRegistry"], () => {
       sendResponse({ ok: true });
     });
+    return true;
+  }
+
+  // Nuclear option: clear ALL data from Firebase for a room (highlights, presence, labels)
+  if (msg.action === "nuke-firebase-room") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({ ok: false, error: "Missing params" }); return true; }
+    
+    console.log("[Vantage BG] NUKING Firebase room:", packKey);
+    
+    // Delete the entire pack from Firebase
+    fetch(`${url}/packs/${packKey}.json`, { method: "DELETE" })
+      .then(resp => {
+        console.log("[Vantage BG] Nuke response:", resp.ok, resp.status);
+        // Also clear local storage
+        chrome.storage.local.remove(["highlights", "cloudPack", "roomHistory", "roomCreatorRegistry"], () => {
+          sendResponse({ ok: resp.ok });
+        });
+      })
+      .catch(err => {
+        console.log("[Vantage BG] Nuke error:", err);
+        sendResponse({ ok: false, error: err.message });
+      });
     return true;
   }
 

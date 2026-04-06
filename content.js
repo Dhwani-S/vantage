@@ -27,6 +27,7 @@
   let currentTheme = "dark";  // synced from chrome.storage
   let isActive = false;        // global activation — persisted in chrome.storage
   let cloudSync = null;        // CloudSync instance (null = cloud disabled)
+  const _recentlyDeletedIds = new Set(); // track deleted IDs to ignore cloud restore attempts
   const IC = {
     sun:   `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>`,
     moon:  `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`,
@@ -117,7 +118,23 @@
       .replace(/</g, "&lt;");
   }
 
-  function buildRawColorPickerHtml(record) {
+  function buildColorPickerHtml(record) {
+    // If room has custom labels, show ONLY those (no default colors)
+    if (useRoomLabelMode()) {
+      const labels = cloudSync.roomLabels || {};
+      const labelKeys = Object.keys(labels);
+      const labelDot = (k) => {
+        const lb = labels[k];
+        const active = record ? record.label === k : false;
+        let ring = normalizeHex(lb.color || "");
+        if (!/^#[0-9a-f]{6}$/.test(ring)) ring = "#71717a";
+        return `<button type="button" class="cs-lp-dot cs-lp-dot-label${active ? " active" : ""}" style="--lp-ring:${ring}" data-lbl="${escapeAttr(k)}" title="${escapeAttr(lb.name)}"><span style="background:${lb.color}"></span></button>`;
+      };
+      const dots = [...labelKeys].sort().map(labelDot).join("");
+      return `<div class="cs-label-picker" role="group" aria-label="Room labels">${dots}</div>`;
+    }
+    
+    // Otherwise show default colors
     const rawDot = (c) => {
       const active = record
         ? (record.color === c.name && !record.label)
@@ -130,6 +147,11 @@
     const after = PICKER_AFTER_SEP.map(rawDot).join("");
     const sep = `<span class="cs-lp-sep-v" aria-hidden="true"></span>`;
     return `<div class="cs-label-picker" role="group" aria-label="Highlight colors">${before}${sep}${after}</div>`;
+  }
+  
+  // Alias for backward compatibility
+  function buildRawColorPickerHtml(record) {
+    return buildColorPickerHtml(record);
   }
 
   /** Second row: room labels (only when cloud labels exist). Does not replace the color strip. */
@@ -186,7 +208,7 @@
      STORAGE HELPERS
      ════════════════════════════════════════════ */
   function loadHighlights(url) {
-    const loadUrl = url || getCurrentUrl();
+    const loadUrl = normalizeUrl(url || location.href);
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage({ action: "get-all-highlights" }, (all) => {
@@ -196,12 +218,18 @@
             resolve([]);
             return;
           }
+          
+          console.log("[Vantage] Loading highlights for URL:", loadUrl);
+          console.log("[Vantage] All stored URLs:", all ? Object.keys(all) : "none");
+          
           // Collect highlights from ALL URL keys that normalize to this URL
           let loaded = [];
           const seenIds = new Set();
           if (all) {
             for (const [storedUrl, items] of Object.entries(all)) {
-              if (storedUrl === loadUrl || normalizeUrl(storedUrl) === loadUrl) {
+              const normStoredUrl = normalizeUrl(storedUrl);
+              console.log(`[Vantage] Comparing: stored="${normStoredUrl}" vs current="${loadUrl}" match=${normStoredUrl === loadUrl}`);
+              if (normStoredUrl === loadUrl) {
                 for (const item of items) {
                   if (!seenIds.has(item.id)) {
                     seenIds.add(item.id);
@@ -212,7 +240,7 @@
             }
           }
           if (loaded.length > 0) {
-            console.log(`[Vantage] Found ${loaded.length} highlights across matching URL keys`);
+            console.log(`[Vantage] Found ${loaded.length} highlights, texts:`, loaded.map(h => h.text?.slice(0,30)));
           }
           // Merge into local array (avoid duplicates by id)
           const existingIds = new Set(highlights.map(h => h.id));
@@ -244,25 +272,24 @@
           }
           const data = all || {};
 
-          // Group local highlights by NORMALIZED URL (prevents key fragmentation)
-          const byUrl = {};
-          for (const h of highlights) {
-            const hUrl = normalizeUrl(h.url || getCurrentUrl());
-            h.url = hUrl; // normalize stored URL for consistency
-            if (!byUrl[hUrl]) byUrl[hUrl] = [];
-            byUrl[hUrl].push(h);
+          // Only save highlights for the CURRENT page URL to avoid overwriting other pages
+          const currentUrl = getCurrentUrl();
+          const currentPageHighlights = highlights.filter(h => normalizeUrl(h.url || currentUrl) === currentUrl);
+          
+          // Normalize URLs on the highlights we're saving
+          for (const h of currentPageHighlights) {
+            h.url = normalizeUrl(h.url || currentUrl);
           }
 
-          // Remove any old non-normalized URL keys that map to the same page
+          // Remove any old non-normalized URL keys that map to current page
           for (const storedUrl of Object.keys(data)) {
-            const norm = normalizeUrl(storedUrl);
-            if (norm !== storedUrl && byUrl[norm]) {
-              delete data[storedUrl]; // remove old variant
+            if (normalizeUrl(storedUrl) === currentUrl && storedUrl !== currentUrl) {
+              delete data[storedUrl];
             }
           }
-          for (const [url, items] of Object.entries(byUrl)) {
-            data[url] = items;
-          }
+          
+          // Save current page highlights (or empty array if all deleted)
+          data[currentUrl] = currentPageHighlights;
 
           try {
             chrome.runtime.sendMessage({ action: "save-highlights", payload: data }, () => {
@@ -272,7 +299,7 @@
                 resolve();
                 return;
               }
-              console.log(`[Vantage] Saved ${highlights.length} highlights across ${Object.keys(byUrl).length} URL(s)`);
+              console.log(`[Vantage] Saved ${currentPageHighlights.length} highlights for ${currentUrl}`);
               resolve();
             });
           } catch (e) {
@@ -361,70 +388,127 @@
   function findTextInDOM(searchText, prefix, suffix) {
     if (!searchText || searchText.length < 2) return null;
 
-    const bodyText = document.body.innerText;
+    // Build a concatenated string from all text nodes with position tracking
+    const textNodes = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (node.parentElement?.closest(".cs-tooltip, script, style, noscript")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    
+    let fullText = "";
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const text = node.textContent;
+      if (text) {
+        textNodes.push({ node, start: fullText.length, end: fullText.length + text.length });
+        fullText += text;
+      }
+    }
 
-    // Collect ALL candidate positions in innerText (exact + normalized)
+    if (!fullText) return null;
+
+    // Find all occurrences of searchText
     const candidates = [];
-
-    // Exact matches
     let idx = 0;
-    while ((idx = bodyText.indexOf(searchText, idx)) !== -1) {
+    while ((idx = fullText.indexOf(searchText, idx)) !== -1) {
       candidates.push({ pos: idx, len: searchText.length, score: 0 });
       idx += 1;
     }
 
-    // Normalized whitespace matches
-    const normalSearch = searchText.replace(/\s+/g, " ").trim();
-    const normalBody = bodyText.replace(/\s+/g, " ");
-    let nIdx = 0;
-    while ((nIdx = normalBody.indexOf(normalSearch, nIdx)) !== -1) {
-      const origPos = mapNormToOrig(bodyText, nIdx);
-      const origEnd = mapNormToOrig(bodyText, nIdx + normalSearch.length);
-      const already = candidates.some(c => Math.abs(c.pos - origPos) < 5);
-      if (!already) {
-        candidates.push({ pos: origPos, len: origEnd - origPos, score: -1 });
+    // Also try normalized whitespace search
+    if (candidates.length === 0) {
+      const normSearch = searchText.replace(/\s+/g, " ").trim();
+      const normFull = fullText.replace(/\s+/g, " ");
+      let nIdx = 0;
+      while ((nIdx = normFull.indexOf(normSearch, nIdx)) !== -1) {
+        // Map back to original position (approximate)
+        const origPos = mapNormToOrig(fullText, nIdx);
+        candidates.push({ pos: origPos, len: searchText.length, score: -1 });
+        nIdx += 1;
       }
-      nIdx += 1;
     }
 
     if (candidates.length === 0) {
-      // Last resort: single text-node walker
-      const range = findSingleTextNode(searchText);
-      if (range) return range;
+      console.log("[Vantage] findTextInDOM: text not found in page:", searchText.slice(0, 50));
       return null;
     }
+
+    console.log(`[Vantage] findTextInDOM: found ${candidates.length} candidates for "${searchText.slice(0,30)}", prefix="${prefix?.slice(0,30)}", suffix="${suffix?.slice(0,30)}"`);
 
     // Score candidates by prefix/suffix context match
     if ((prefix || suffix) && candidates.length > 1) {
       for (const c of candidates) {
+        let prefixScore = 0, suffixScore = 0;
+        
         if (prefix) {
-          const before = bodyText.slice(Math.max(0, c.pos - prefix.length - 10), c.pos);
-          if (before.includes(prefix)) c.score += 2;
-          else {
-            const normBefore = before.replace(/\s+/g, " ");
-            const normPrefix = prefix.replace(/\s+/g, " ");
-            if (normBefore.includes(normPrefix)) c.score += 1;
-          }
+          const before = fullText.slice(Math.max(0, c.pos - prefix.length - 30), c.pos);
+          const normBefore = before.replace(/\s+/g, " ").toLowerCase();
+          const normPrefix = prefix.replace(/\s+/g, " ").toLowerCase();
+          if (before.toLowerCase().includes(prefix.toLowerCase())) prefixScore = 3;
+          else if (normBefore.includes(normPrefix)) prefixScore = 2;
+          else if (normPrefix.length > 10 && normBefore.includes(normPrefix.slice(-10))) prefixScore = 1;
         }
+        
         if (suffix) {
-          const after = bodyText.slice(c.pos + c.len, c.pos + c.len + suffix.length + 10);
-          if (after.includes(suffix)) c.score += 2;
-          else {
-            const normAfter = after.replace(/\s+/g, " ");
-            const normSuffix = suffix.replace(/\s+/g, " ");
-            if (normAfter.includes(normSuffix)) c.score += 1;
-          }
+          const after = fullText.slice(c.pos + c.len, c.pos + c.len + suffix.length + 30);
+          const normAfter = after.replace(/\s+/g, " ").toLowerCase();
+          const normSuffix = suffix.replace(/\s+/g, " ").toLowerCase();
+          if (after.toLowerCase().includes(suffix.toLowerCase())) suffixScore = 3;
+          else if (normAfter.includes(normSuffix)) suffixScore = 2;
+          else if (normSuffix.length > 10 && normAfter.includes(normSuffix.slice(0, 10))) suffixScore = 1;
         }
+        
+        // Big bonus when BOTH match
+        c.score = (prefixScore > 0 && suffixScore > 0) ? prefixScore + suffixScore + 10 : prefixScore + suffixScore;
+        c.prefixScore = prefixScore;
+        c.suffixScore = suffixScore;
+        
+        // Log context for debugging
+        const beforeCtx = fullText.slice(Math.max(0, c.pos - 30), c.pos);
+        const afterCtx = fullText.slice(c.pos + c.len, c.pos + c.len + 30);
+        console.log(`[Vantage] Candidate at ${c.pos}: score=${c.score} (prefix=${prefixScore}, suffix=${suffixScore}), before="${beforeCtx.slice(-20)}", after="${afterCtx.slice(0,20)}"`);
       }
       candidates.sort((a, b) => b.score - a.score);
     }
 
     const best = candidates[0];
-    const range = resolveInnerTextRange(best.pos, best.len);
-    if (range) return range;
+    console.log(`[Vantage] Selected candidate at pos ${best.pos} with score ${best.score}`);
+    
+    // Build range from text node positions
+    const startPos = best.pos;
+    const endPos = best.pos + best.len;
+    
+    let startNode = null, startOff = 0, endNode = null, endOff = 0;
+    for (const tn of textNodes) {
+      if (!startNode && tn.end > startPos) {
+        startNode = tn.node;
+        startOff = startPos - tn.start;
+      }
+      if (startNode && tn.end >= endPos) {
+        endNode = tn.node;
+        endOff = endPos - tn.start;
+        break;
+      }
+    }
 
-    // Fallback to single text-node walker
-    return findSingleTextNode(searchText);
+    if (startNode && endNode) {
+      try {
+        const range = document.createRange();
+        range.setStart(startNode, startOff);
+        range.setEnd(endNode, endOff);
+        console.log("[Vantage] findTextInDOM: created range for:", range.toString().slice(0, 50));
+        return range;
+      } catch (e) {
+        console.log("[Vantage] findTextInDOM: range creation failed:", e.message);
+      }
+    }
+
+    console.log("[Vantage] findTextInDOM: could not build range");
+    return null;
   }
 
   function mapNormToOrig(bodyText, normPos) {
@@ -671,6 +755,8 @@
     const currentUrl = getCurrentUrl();
     const pageHighlights = highlights.filter(h => normalizeUrl(h.url) === currentUrl);
 
+    console.log(`[Vantage] repaintAll: currentUrl=${currentUrl}, total highlights=${highlights.length}, for this page=${pageHighlights.length}`);
+
     if (pageHighlights.length === 0) {
       console.log("[Vantage] No highlights to repaint for this URL");
       return;
@@ -682,17 +768,19 @@
     for (const h of pageHighlights) {
       if (document.querySelector(`[data-cs-id="${h.id}"]`)) { painted++; continue; }
       try {
+        console.log(`[Vantage] Trying to repaint: "${h.text?.slice(0,40)}" prefix="${h.anchor?.prefix?.slice(0,20)}" suffix="${h.anchor?.suffix?.slice(0,20)}"`);
         const range = findTextInDOM(h.text, h.anchor?.prefix, h.anchor?.suffix);
         if (range) {
+          console.log(`[Vantage] Found range for: "${h.text?.slice(0,40)}", range text: "${range.toString().slice(0,40)}"`);
           wrapRange(range, h.id, h.color || "yellow");
           painted++;
         } else {
           failed++;
-          console.log(`[Vantage] Could not repaint: "${h.text.slice(0,60)}"`);
+          console.log(`[Vantage] Could not find text in DOM: "${h.text?.slice(0,60)}"`);
         }
       } catch (e) {
         failed++;
-        console.log(`[Vantage] Repaint failed for "${h.text.slice(0,40)}":`, e.message);
+        console.log(`[Vantage] Repaint failed for "${h.text?.slice(0,40)}":`, e.message);
       }
     }
 
@@ -805,7 +893,7 @@
         </div>
       </div>
       ${labelPickerHtml}
-      ${commentsHtml ? `<div class="cs-comments-list">${commentsHtml}</div>` : ""}
+      <div class="cs-comments-list">${commentsHtml}</div>
       ${inputHtml}
     `;
 
@@ -881,8 +969,26 @@
 
   function refreshOpenTooltip(highlightId) {
     if (!activeTooltip || activeTooltip.dataset.highlightId !== highlightId) return;
-    const el = document.querySelector(`[data-cs-id="${highlightId}"]`);
-    if (el) showTooltip(el);
+    const record = highlights.find(h => h.id === highlightId);
+    if (!record) return;
+
+    /* Update comments list in-place without closing/reopening */
+    const listEl = activeTooltip.querySelector(".cs-comments-list");
+    const inputArea = activeTooltip.querySelector(".cs-comment-input");
+    if (listEl) {
+      const comments = getComments(record);
+      listEl.innerHTML = comments.length > 0
+        ? comments
+            .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+            .map(c => `<div class="cs-comment-item"><span class="cs-comment-who">${authorAvatar(c.author)}<strong>${escapeHtml(c.author || "Anonymous")}</strong><span class="cs-comment-time">${relativeTime(c.createdAt)}</span></span><div class="cs-comment-text">${escapeHtml(c.text)}</div></div>`)
+            .join("")
+        : "";
+      listEl.scrollTop = listEl.scrollHeight;
+    }
+    if (inputArea) {
+      inputArea.value = "";
+      inputArea.focus();
+    }
   }
 
   function escapeHtml(str) {
@@ -924,52 +1030,32 @@
     /* Capture the actual Range while selection is still live — this is the ground truth. */
     const selRange = sel.getRangeAt(0).cloneRange();
 
-    /* Get prefix/suffix from the ACTUAL selection position, not first occurrence. */
+    /* Get prefix/suffix directly from the DOM around the ACTUAL selection Range */
     let selPrefix = "", selSuffix = "";
     try {
-      const bodyText = document.body.innerText;
-      /* Find which occurrence of selText matches our selection by checking all of them
-         and picking the one whose surrounding context matches what we can extract from the Range. */
-      const allIdx = [];
-      let searchIdx = 0;
-      while ((searchIdx = bodyText.indexOf(selText, searchIdx)) !== -1) {
-        allIdx.push(searchIdx);
-        searchIdx += 1;
-      }
-      if (allIdx.length === 1) {
-        const idx = allIdx[0];
-        selPrefix = bodyText.slice(Math.max(0, idx - 32), idx).replace(/\s+/g, " ").trim();
-        selSuffix = bodyText.slice(idx + selText.length, idx + selText.length + 32).replace(/\s+/g, " ").trim();
-      } else if (allIdx.length > 1) {
-        /* Multiple occurrences — try to get context from the Range's container */
-        let rangeContext = "";
-        try {
-          const container = selRange.commonAncestorContainer;
-          const contextNode = container.nodeType === Node.TEXT_NODE ? container.parentElement : container;
-          rangeContext = contextNode?.innerText || "";
-        } catch {}
-        /* Find the occurrence whose surrounding text best matches rangeContext */
-        let bestIdx = allIdx[0];
-        let bestScore = -1;
-        for (const idx of allIdx) {
-          const around = bodyText.slice(Math.max(0, idx - 50), idx + selText.length + 50);
-          let score = 0;
-          if (rangeContext && around.includes(rangeContext.slice(0, 30))) score += 2;
-          if (rangeContext && rangeContext.includes(selText)) score += 1;
-          /* Prefer earlier matches slightly less to avoid always picking first */
-          if (score > bestScore) {
-            bestScore = score;
-            bestIdx = idx;
-          }
-        }
-        selPrefix = bodyText.slice(Math.max(0, bestIdx - 32), bestIdx).replace(/\s+/g, " ").trim();
-        selSuffix = bodyText.slice(bestIdx + selText.length, bestIdx + selText.length + 32).replace(/\s+/g, " ").trim();
-      }
-    } catch {}
+      // Get text BEFORE the selection by expanding range backwards
+      const prefixRange = document.createRange();
+      prefixRange.setStart(document.body, 0);
+      prefixRange.setEnd(selRange.startContainer, selRange.startOffset);
+      const prefixText = prefixRange.toString();
+      selPrefix = prefixText.slice(-80).replace(/\s+/g, " ").trim();
+      
+      // Get text AFTER the selection by creating a range from end to a far point
+      const suffixRange = document.createRange();
+      suffixRange.setStart(selRange.endContainer, selRange.endOffset);
+      suffixRange.setEndAfter(document.body.lastChild || document.body);
+      const suffixText = suffixRange.toString();
+      selSuffix = suffixText.slice(0, 80).replace(/\s+/g, " ").trim();
+      
+      console.log(`[Vantage] Captured context - prefix: "${selPrefix.slice(-30)}", suffix: "${selSuffix.slice(0,30)}"`);
+    } catch (e) {
+      console.log("[Vantage] Failed to capture prefix/suffix:", e.message);
+    }
 
     const gen = ++_actionBarGen;
+    /* Don't await fetchLabels — let it run in background to avoid flaky UX */
     if (cloudSync?.isConfigured) {
-      try { await cloudSync.fetchLabels(); } catch {}
+      cloudSync.fetchLabels().catch(() => {});
     }
     if (gen !== _actionBarGen) return;
 
@@ -978,42 +1064,32 @@
     const pop = document.createElement("div");
     pop.className = "cs-tooltip cs-light cs-create-popover";
     const pickerHtml = buildRawColorPickerHtml(null);
-    pop.innerHTML = `
-      <div class="cs-tooltip-header">
-        <span class="cs-tp-author">${authorAvatar(myName)}${escapeHtml(myName)}</span>
-        <div class="cs-tooltip-actions">
-          <button type="button" class="cs-icon-btn cs-tooltip-close" title="Close">${IC.close}</button>
-        </div>
-      </div>
-      ${pickerHtml}
-      <div class="cs-comment-input-row cs-create-comment-row">
-        <textarea class="cs-comment-input" placeholder="Comment… (Ctrl+Enter)" rows="2"></textarea>
-        <button type="button" class="cs-icon-btn cs-send-comment" title="Create highlight">${IC.send}</button>
-      </div>
-    `;
+    pop.innerHTML = pickerHtml;
 
-    /* Position centered under selection — calculate in JS to avoid transform flicker */
-    const popWidth = 240;
-    const cx = selRect.left + selRect.width / 2;
-    const leftPos = Math.max(10, Math.min(window.scrollX + cx - popWidth / 2, window.innerWidth - popWidth - 10));
-    pop.style.top = (window.scrollY + selRect.bottom + 6) + "px";
+    /* Position to left or right of selection based on available space */
+    const popWidth = 210;
+    const selCenterX = selRect.left + selRect.width / 2;
+    const spaceOnRight = window.innerWidth - selRect.right;
+    const spaceOnLeft = selRect.left;
+
+    let leftPos;
+    if (spaceOnRight >= popWidth + 20) {
+      /* Enough space on right — align to right edge of selection */
+      leftPos = window.scrollX + selRect.right - popWidth;
+    } else if (spaceOnLeft >= popWidth + 20) {
+      /* Enough space on left — align to left edge of selection */
+      leftPos = window.scrollX + selRect.left;
+    } else {
+      /* Fallback: center it as best we can */
+      leftPos = Math.max(10, Math.min(window.scrollX + selCenterX - popWidth / 2, window.innerWidth - popWidth - 10));
+    }
+
+    pop.style.top = (window.scrollY + selRect.bottom + 4) + "px";
     pop.style.left = leftPos + "px";
     document.body.appendChild(pop);
     activeActionBar = pop;
 
-    pop.querySelector(".cs-tooltip-close").addEventListener("click", closeActionBar);
-
-    const textarea = pop.querySelector(".cs-comment-input");
-    const sendBtn = pop.querySelector(".cs-send-comment");
-
-    /**
-     * Create highlight. Try the saved Range first (most accurate), fall back to
-     * findTextInDOM if the Range became invalid.
-     */
-    function doCreate(color) {
-      const commentText = textarea.value.trim();
-      const chosenColor = color || DEFAULT_CREATE_RAW_COLOR;
-
+    function doCreate(color, label) {
       /* Try the original cloned Range first — it's the most accurate */
       let range = null;
       try {
@@ -1034,14 +1110,21 @@
       }
 
       const id = uid();
-      wrapRange(range, id, chosenColor);
+      
+      // Determine color: if label, use label's color; otherwise use raw color
+      let finalColor = color || DEFAULT_CREATE_RAW_COLOR;
+      if (label && cloudSync?.roomLabels?.[label]) {
+        finalColor = labelToHighlightColor(cloudSync.roomLabels[label].color);
+      }
+      
+      wrapRange(range, id, finalColor);
       try { window.getSelection()?.removeAllRanges(); } catch {}
 
       const record = {
         id,
         text: selText,
         comments: [],
-        color: chosenColor,
+        color: finalColor,
         anchor: {
           startContainerXPath: getXPath(range.startContainer),
           startOffset: range.startOffset,
@@ -1054,6 +1137,11 @@
         url: getCurrentUrl(),
         title: document.title,
       };
+      
+      // Add label if using room labels
+      if (label) {
+        record.label = label;
+      }
 
       highlights.push(record);
       saveHighlights();
@@ -1061,40 +1149,42 @@
         cloudSync.pushHighlight(record).catch(() => {});
       }
 
-      if (commentText) {
-        const author = (cloudSync && cloudSync._userName) || "You";
-        record.comments.push({ text: commentText, author, createdAt: new Date().toISOString() });
-        saveHighlights();
-        if (cloudSync && cloudSync.isConfigured) cloudSync.pushHighlight(record).catch(() => {});
-      }
-
       closeActionBar();
-      console.log("[Vantage] Highlighted:", selText.slice(0, 60), "with color:", chosenColor);
+      console.log("[Vantage] Highlighted:", selText.slice(0, 60), "with", label ? `label: ${label}` : `color: ${finalColor}`);
+
+      /* Auto-open tooltip for the new highlight */
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-cs-id="${id}"]`);
+        if (el) showTooltip(el);
+      });
     }
 
-    /* Clicking a color dot immediately creates the highlight with that color */
-    pop.querySelectorAll(".cs-lp-dot").forEach(dot => {
-      dot.addEventListener("mousedown", (e) => { e.preventDefault(); });
-      dot.addEventListener("click", () => {
-        const color = dot.dataset.rawcolor;
-        if (color) doCreate(color);
-      });
+    /* Use event delegation for clicks on color dots */
+    pop.addEventListener("mousedown", (e) => {
+      e.preventDefault();
     });
-
-    /* Send button uses the active dot's color (or default) */
-    sendBtn.addEventListener("click", () => {
-      const activeDot = pop.querySelector(".cs-lp-dot-raw.active");
-      doCreate(activeDot?.dataset.rawcolor);
-    });
-    textarea.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") closeActionBar();
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    
+    pop.addEventListener("click", (e) => {
+      const dot = e.target.closest(".cs-lp-dot");
+      if (dot) {
         e.preventDefault();
-        const activeDot = pop.querySelector(".cs-lp-dot-raw.active");
-        doCreate(activeDot?.dataset.rawcolor);
+        e.stopPropagation();
+        
+        // Check if it's a label dot or a raw color dot
+        const label = dot.dataset.lbl;
+        const color = dot.dataset.rawcolor;
+        
+        if (label !== undefined) {
+          // Label mode
+          console.log("[Vantage] Label dot clicked:", label);
+          doCreate(null, label);
+        } else if (color) {
+          // Raw color mode
+          console.log("[Vantage] Color dot clicked:", color);
+          doCreate(color, null);
+        }
       }
     });
-    textarea.focus();
   }
 
   function closeActionBar() {
@@ -1110,6 +1200,11 @@
      ════════════════════════════════════════════ */
   function removeHighlight(id) {
     const record = highlights.find(h => h.id === id);
+    
+    // Track this ID to prevent cloud sync from restoring it
+    _recentlyDeletedIds.add(id);
+    setTimeout(() => _recentlyDeletedIds.delete(id), 10000); // clear after 10s
+    
     document.querySelectorAll(`[data-cs-id="${id}"]`).forEach(el => {
       const parent = el.parentNode;
       while (el.firstChild) parent.insertBefore(el.firstChild, el);
@@ -1362,6 +1457,11 @@
       if (!remote || typeof remote !== "object") return;
       let added = 0;
       for (const [id, hl] of Object.entries(remote)) {
+        // Skip if recently deleted locally
+        if (_recentlyDeletedIds.has(id)) {
+          console.log("[Vantage] Skipping recently deleted highlight from cloud:", id);
+          continue;
+        }
         if (highlights.find(h => h.id === id)) continue;
         const { _author, ...clean } = hl;
         clean._cloud = true;
@@ -1393,6 +1493,12 @@
 
     cloudSync.subscribeToUrl(url,
       (remoteHighlight) => {
+        // Ignore if this was recently deleted locally
+        if (_recentlyDeletedIds.has(remoteHighlight.id)) {
+          console.log("[Vantage] Ignoring cloud highlight (recently deleted):", remoteHighlight.id);
+          return;
+        }
+        
         console.log("[Vantage] Cloud highlight received:", remoteHighlight.text?.slice(0, 50));
 
         if (document.querySelector(`[data-cs-id="${remoteHighlight.id}"]`)) return;
@@ -1419,6 +1525,12 @@
         removeHighlight(deletedId);
       },
       (updatedHighlight) => {
+        // Ignore if this was recently deleted locally
+        if (_recentlyDeletedIds.has(updatedHighlight.id)) {
+          console.log("[Vantage] Ignoring cloud update (recently deleted):", updatedHighlight.id);
+          return;
+        }
+        
         const local = highlights.find(h => h.id === updatedHighlight.id);
         if (!local) return;
         if (updatedHighlight.comments) local.comments = updatedHighlight.comments;

@@ -823,6 +823,12 @@
       toast("Cannot delete — read-only");
       return;
     }
+    
+    // Also delete from cloud if connected and has permission
+    if (h && h._cloud && cloudRole === "editor") {
+      chrome.runtime.sendMessage({ action: "delete-cloud-highlight", url, id });
+    }
+    
     allData[url] = allData[url].filter(h => h.id !== id);
     if (allData[url].length === 0) delete allData[url];
     selectedIds.delete(id);
@@ -832,10 +838,15 @@
   function deleteSelected() {
     if (selectedIds.size === 0) return;
     const deletableIds = new Set();
+    const cloudDeletes = []; // track cloud highlights to delete
+    
     for (const url of Object.keys(allData)) {
       for (const h of allData[url]) {
         if (selectedIds.has(h.id) && canDeleteHighlight(h)) {
           deletableIds.add(h.id);
+          if (h._cloud && cloudRole === "editor") {
+            cloudDeletes.push({ url, id: h.id });
+          }
         }
       }
     }
@@ -843,6 +854,12 @@
       toast("No deletable items selected");
       return;
     }
+    
+    // Delete from cloud
+    for (const { url, id } of cloudDeletes) {
+      chrome.runtime.sendMessage({ action: "delete-cloud-highlight", url, id });
+    }
+    
     for (const url of Object.keys(allData)) {
       allData[url] = allData[url].filter(h => !deletableIds.has(h.id));
       if (allData[url].length === 0) delete allData[url];
