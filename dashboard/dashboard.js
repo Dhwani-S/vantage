@@ -892,7 +892,7 @@
     if (flat.length === 0) { toast("No highlights to harvest!"); return; }
 
     const grouped = groupByDomain(flat);
-    let md = `# Vantage — Harvested Notes\n`;
+    let md = `# Vantage - Harvested Notes\n`;
     md += `> Exported on ${new Date().toLocaleString()}\n\n`;
     md += `---\n\n`;
 

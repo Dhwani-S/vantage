@@ -107,11 +107,19 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // ── Page Note Button ────────────────────────
   document.getElementById("btnPageNote").addEventListener("click", async () => {
-    if (!currentTab?.id) return;
+    if (!currentTab?.id) {
+      console.log("[Vantage Popup] No current tab");
+      return;
+    }
     try {
-      await chrome.tabs.sendMessage(currentTab.id, { action: "add-page-note" });
-    } catch {}
-    window.close();
+      console.log("[Vantage Popup] Sending add-page-note to tab:", currentTab.id);
+      const response = await chrome.tabs.sendMessage(currentTab.id, { action: "add-page-note" });
+      console.log("[Vantage Popup] Response:", response);
+    } catch (err) {
+      console.error("[Vantage Popup] Page note error:", err);
+    }
+    // Small delay before closing to ensure message is processed
+    setTimeout(() => window.close(), 100);
   });
 
   // ── Dashboard Button ────────────────────────

@@ -505,3 +505,22 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* ══════════════════════════════════════════════
+   PAGE NOTE TOOLTIP
+   ══════════════════════════════════════════════ */
+.cs-page-note-tooltip {
+  position: fixed !important;
+  z-index: 2147483647;
+  width: 300px;
+  max-width: calc(100vw - 40px);
+}
+.cs-page-note-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #818cf8;
+  margin-right: 6px;
+}
+.cs-tooltip.cs-light .cs-page-note-badge {
+  color: #6366f1;
+}

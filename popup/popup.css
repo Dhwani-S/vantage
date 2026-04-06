@@ -268,6 +268,16 @@ body {
   color: var(--v-text);
 }
 
+.actions-row {
+  display: flex;
+  gap: 6px;
+}
+.action-btn.half {
+  flex: 1;
+  justify-content: center;
+  padding: 10px 8px;
+}
+
 /* ── Cloud Pack ────────────────────────────── */
 .cloud-section {
   background: var(--v-surface);

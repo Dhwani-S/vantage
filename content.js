@@ -1296,7 +1296,154 @@
     if (msg.action === "ping") {
       sendResponse({ alive: true, url: getCurrentUrl() });
     }
+    if (msg.action === "add-page-note") {
+      console.log("[Vantage] Adding page note...");
+      addPageNote();
+      sendResponse({ ok: true });
+      return true;
+    }
   });
+
+  /* ════════════════════════════════════════════
+     PAGE NOTE — a note attached to the page, not a text selection
+     ════════════════════════════════════════════ */
+  function addPageNote() {
+    console.log("[Vantage] addPageNote() called");
+    closeActionBar();
+    closeTooltip();
+
+    const id = uid();
+    console.log("[Vantage] Creating page note with id:", id);
+    const record = {
+      id,
+      type: "page-note",
+      text: "",
+      comments: [],
+      createdAt: new Date().toISOString(),
+      url: getCurrentUrl(),
+      title: document.title,
+    };
+
+    highlights.push(record);
+    saveHighlights();
+    if (cloudSync && cloudSync.isConfigured && cloudSync.canHighlight) {
+      cloudSync.pushHighlight(record).catch(() => {});
+    }
+
+    console.log("[Vantage] Page note created, showing tooltip...");
+    showPageNoteTooltip(record);
+  }
+
+  function showPageNoteTooltip(record) {
+    closeTooltip();
+    closeActionBar();
+
+    const hasCloud = cloudSync && cloudSync.isConfigured;
+    const canComment = !cloudSync || cloudSync.role !== CloudSync.ROLES.VIEWER;
+    const canDeleteThis = !cloudSync || cloudSync.canDelete || !record._cloud;
+
+    const tooltip = document.createElement("div");
+    tooltip.className = `cs-tooltip cs-page-note-tooltip${currentTheme === "light" ? " cs-light" : ""}`;
+    tooltip.dataset.highlightId = record.id;
+
+    const authorName = record._authorName || (cloudSync && cloudSync._userName) || "You";
+    const authorHtml = `<span class="cs-tp-author">${authorAvatar(authorName)}${escapeHtml(authorName)}</span>`;
+
+    const comments = getComments(record);
+    const commentsHtml = comments.length > 0
+      ? comments
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+          .map(c => `<div class="cs-comment-item"><span class="cs-comment-who">${authorAvatar(c.author)}<strong>${escapeHtml(c.author || "Anonymous")}</strong><span class="cs-comment-time">${relativeTime(c.createdAt)}</span></span><div class="cs-comment-text">${escapeHtml(c.text)}</div></div>`)
+          .join("")
+      : "";
+
+    const inputHtml = canComment
+      ? `<div class="cs-comment-input-row">
+           <textarea class="cs-comment-input" placeholder="Add a page note… (Ctrl+Enter)" rows="2"></textarea>
+           <button type="button" class="cs-icon-btn cs-send-comment" title="Send">${IC.send}</button>
+         </div>`
+      : "";
+
+    tooltip.innerHTML = `
+      <div class="cs-tooltip-header">
+        <span class="cs-page-note-badge">📄 Page Note</span>
+        ${authorHtml}
+        <div class="cs-tooltip-actions">
+          ${canDeleteThis ? `<button type="button" class="cs-icon-btn cs-delete" title="Delete">${IC.trash}</button>` : ""}
+          <button type="button" class="cs-icon-btn cs-tooltip-close" title="Close">${IC.close}</button>
+        </div>
+      </div>
+      <div class="cs-comments-list">${commentsHtml}</div>
+      ${inputHtml}
+    `;
+
+    // Position in center of viewport
+    tooltip.style.position = "fixed";
+    tooltip.style.top = "50%";
+    tooltip.style.left = "50%";
+    tooltip.style.transform = "translate(-50%, -50%)";
+    tooltip.style.width = "300px";
+    
+    document.body.appendChild(tooltip);
+    activeTooltip = tooltip;
+
+    const commentsList = tooltip.querySelector(".cs-comments-list");
+    if (commentsList) commentsList.scrollTop = commentsList.scrollHeight;
+
+    tooltip.querySelector(".cs-tooltip-close").addEventListener("click", closeTooltip);
+
+    const deleteBtn = tooltip.querySelector(".cs-delete");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", () => {
+        removeHighlight(record.id);
+        closeTooltip();
+      });
+    }
+
+    const inputArea = tooltip.querySelector(".cs-comment-input");
+    const sendBtn = tooltip.querySelector(".cs-send-comment");
+    if (inputArea && sendBtn) {
+      const submitComment = () => {
+        const text = inputArea.value.trim();
+        if (!text) return;
+        const myName = (cloudSync && cloudSync._userName) || "You";
+        if (!Array.isArray(record.comments)) record.comments = [];
+        record.comments.push({ text, author: myName, createdAt: new Date().toISOString() });
+        saveHighlights();
+        if (hasCloud) cloudSync.pushHighlight(record).catch(() => {});
+        refreshPageNoteTooltip(record.id);
+      };
+      sendBtn.addEventListener("click", submitComment);
+      inputArea.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeTooltip();
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submitComment(); }
+      });
+      inputArea.focus();
+    }
+  }
+
+  function refreshPageNoteTooltip(highlightId) {
+    if (!activeTooltip || activeTooltip.dataset.highlightId !== highlightId) return;
+    const record = highlights.find(h => h.id === highlightId);
+    if (!record) return;
+
+    const listEl = activeTooltip.querySelector(".cs-comments-list");
+    const inputArea = activeTooltip.querySelector(".cs-comment-input");
+    if (listEl) {
+      const comments = getComments(record);
+      listEl.innerHTML = comments.length > 0
+        ? comments
+            .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+            .map(c => `<div class="cs-comment-item"><span class="cs-comment-who">${authorAvatar(c.author)}<strong>${escapeHtml(c.author || "Anonymous")}</strong><span class="cs-comment-time">${relativeTime(c.createdAt)}</span></span><div class="cs-comment-text">${escapeHtml(c.text)}</div></div>`)
+            .join("")
+        : "";
+      listEl.scrollTop = listEl.scrollHeight;
+    }
+    if (inputArea) {
+      inputArea.value = "";
+      inputArea.focus();
+    }
+  }
 
   // Listen for direct trigger from injected popup script (fallback path)
   document.addEventListener("cs-trigger-highlight", () => {

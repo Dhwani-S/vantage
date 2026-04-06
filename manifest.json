@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Vantage — Shared POV",
+  "name": "Vantage - Collaborative Web Highlighter",
   "version": "1.1.0",
   "description": "A shared point-of-view overlay for engineers to annotate the web. Highlight, organize, and share technical knowledge in real time.",
   "permissions": [
