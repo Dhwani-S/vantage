@@ -20,7 +20,8 @@
   let highlights = []; // local cache — may span multiple URLs on SPAs
   let activeTooltip = null;
   let activeActionBar = null;
-  let lastSavedRange = null;  // cloned Range preserved across focus loss
+  let _actionBarGen = 0;       // generation counter to cancel stale async showActionBar calls
+  let lastSavedRange = null;   // cloned Range preserved across focus loss
   let lastSavedText = "";     // plain text backup of selection
   let repaintAttempted = false;
   let currentTheme = "dark";  // synced from chrome.storage
@@ -63,6 +64,88 @@
     const color = _nameColors[parts[0]] || "#71717a";
     const initial = (parts[1] || parts[0] || "?").charAt(0);
     return `<span class="cs-comment-avatar" style="background:${color}">${initial}</span>`;
+  }
+
+  function normalizeHex(h) {
+    if (!h || typeof h !== "string") return "";
+    let x = h.trim().toLowerCase();
+    if (/^#[0-9a-f]{3}$/.test(x)) {
+      x = "#" + x[1] + x[1] + x[2] + x[2] + x[3] + x[3];
+    }
+    return x;
+  }
+
+  /** 8 colors: 4 warm | separator | 4 cool */
+  const PICKER_BEFORE_SEP = [
+    { name: "yellow", hex: "#facc15", title: "Yellow" },
+    { name: "green", hex: "#34d399", title: "Green" },
+    { name: "blue", hex: "#60a5fa", title: "Blue" },
+    { name: "pink", hex: "#f472b6", title: "Pink" },
+  ];
+  const PICKER_AFTER_SEP = [
+    { name: "red", hex: "#ef4444", title: "Red" },
+    { name: "orange", hex: "#fb923c", title: "Orange" },
+    { name: "violet", hex: "#8b5cf6", title: "Purple" },
+    { name: "teal", hex: "#14b8a6", title: "Teal" },
+  ];
+  const HI_PICKER = [...PICKER_BEFORE_SEP, ...PICKER_AFTER_SEP];
+  const HI_PICKER_MATCH = [...HI_PICKER];
+  const DEFAULT_CREATE_RAW_COLOR = "orange";
+
+  function labelToHighlightColor(hex) {
+    const norm = normalizeHex(hex);
+    if (!/^#[0-9a-f]{6}$/.test(norm)) return "yellow";
+    const r = parseInt(norm.slice(1, 3), 16), g = parseInt(norm.slice(3, 5), 16), b = parseInt(norm.slice(5, 7), 16);
+    let best = "yellow", bestD = Infinity;
+    for (const e of HI_PICKER_MATCH) {
+      const h = normalizeHex(e.hex);
+      const dr = r - parseInt(h.slice(1, 3), 16), dg = g - parseInt(h.slice(3, 5), 16), db = b - parseInt(h.slice(5, 7), 16);
+      const d = dr * dr + dg * dg + db * db;
+      if (d < bestD) { bestD = d; best = e.name; }
+    }
+    return best;
+  }
+
+  function useRoomLabelMode() {
+    return !!(cloudSync && cloudSync.isConfigured && Object.keys(cloudSync.roomLabels || {}).length > 0);
+  }
+
+  function escapeAttr(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;");
+  }
+
+  function buildRawColorPickerHtml(record) {
+    const rawDot = (c) => {
+      const active = record
+        ? (record.color === c.name && !record.label)
+        : c.name === DEFAULT_CREATE_RAW_COLOR;
+      let ring = normalizeHex(c.hex);
+      if (!/^#[0-9a-f]{6}$/.test(ring)) ring = "#71717a";
+      return `<button type="button" class="cs-lp-dot cs-lp-dot-raw${active ? " active" : ""}" style="--lp-ring:${ring}" data-rawcolor="${c.name}" title="${escapeAttr(c.title)}"><span style="background:${c.hex}"></span></button>`;
+    };
+    const before = PICKER_BEFORE_SEP.map(rawDot).join("");
+    const after = PICKER_AFTER_SEP.map(rawDot).join("");
+    const sep = `<span class="cs-lp-sep-v" aria-hidden="true"></span>`;
+    return `<div class="cs-label-picker" role="group" aria-label="Highlight colors">${before}${sep}${after}</div>`;
+  }
+
+  /** Second row: room labels (only when cloud labels exist). Does not replace the color strip. */
+  function buildRoomLabelPickerRow(record, labels, labelKeys) {
+    if (!labelKeys.length) return "";
+    const labelDot = (k) => {
+      const lb = labels[k];
+      const active = record ? record.label === k : false;
+      let ring = normalizeHex(lb.color || "");
+      if (!/^#[0-9a-f]{6}$/.test(ring)) ring = "#71717a";
+      return `<button type="button" class="cs-lp-dot cs-lp-dot-label${active ? " active" : ""}" style="--lp-ring:${ring}" data-lbl="${escapeAttr(k)}" title="${escapeAttr(lb.name)}"><span style="background:${lb.color}"></span></button>`;
+    };
+    const noneActive = !record || !record.label;
+    const none = `<button type="button" class="cs-lp-dot cs-lp-dot-label${noneActive ? " active" : ""}" style="--lp-ring:#71717a" data-lbl="" title="No label"><span style="background:#71717a"></span></button>`;
+    const dots = [...labelKeys].sort().map(labelDot).join("");
+    return `<div class="cs-label-picker cs-label-picker--room-labels" role="group" aria-label="Room labels">${none}${dots}</div>`;
   }
 
   /** Strip tracking params, trailing slashes, and fragments for consistent URL matching */
@@ -360,7 +443,7 @@
     const walker = document.createTreeWalker(
       document.body, NodeFilter.SHOW_TEXT, {
         acceptNode(node) {
-          if (node.parentElement && node.parentElement.closest(".cs-tooltip, .cs-action-bar"))
+          if (node.parentElement && node.parentElement.closest(".cs-tooltip"))
             return NodeFilter.FILTER_REJECT;
           return node.textContent.includes(searchText)
             ? NodeFilter.FILTER_ACCEPT
@@ -388,7 +471,7 @@
   function resolveInnerTextRange(pos, length) {
     const allWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        if (node.parentElement && node.parentElement.closest(".cs-tooltip, .cs-action-bar")) {
+        if (node.parentElement && node.parentElement.closest(".cs-tooltip")) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -660,13 +743,15 @@
   /* ════════════════════════════════════════════
      TOOLTIP (Note Editor)
      ════════════════════════════════════════════ */
-  function showTooltip(highlightEl) {
+  async function showTooltip(highlightEl) {
     closeTooltip();
     closeActionBar();
 
     const id = highlightEl.dataset.csId;
     const record = highlights.find(h => h.id === id);
     if (!record) return;
+
+    if (cloudSync?.isConfigured) await cloudSync.fetchLabels();
 
     const isCloudHighlight = !!record._cloud;
     const isViewerRole = cloudSync && cloudSync.role === CloudSync.ROLES.VIEWER;
@@ -675,34 +760,27 @@
     const hasCloud = cloudSync && cloudSync.isConfigured;
     const labels = hasCloud ? cloudSync.roomLabels : {};
     const labelKeys = Object.keys(labels);
+    const labelMode = useRoomLabelMode();
 
     const rect = highlightEl.getBoundingClientRect();
     const tooltip = document.createElement("div");
     tooltip.className = `cs-tooltip${currentTheme === "light" ? " cs-light" : ""}`;
     tooltip.dataset.highlightId = id;
 
-    // Label picker: small dots, current label highlighted
     let labelPickerHtml = "";
-    if (labelKeys.length > 0 && canComment) {
-      const noneLbl = `<button class="cs-lp-dot${!record.label ? " active" : ""}" data-lbl="" title="No label"><span style="background:#71717a"></span></button>`;
-      const lbDots = labelKeys.map(k => {
-        const lb = labels[k];
-        return `<button class="cs-lp-dot${record.label === k ? " active" : ""}" data-lbl="${k}" title="${lb.name}"><span style="background:${lb.color}"></span></button>`;
-      }).join("");
-      labelPickerHtml = `<div class="cs-label-picker">${noneLbl}${lbDots}</div>`;
+    if (canComment) {
+      labelPickerHtml = buildRawColorPickerHtml(record);
     } else if (record.label) {
       const lb = labels[record.label];
       const lbName = lb ? lb.name : record.label;
       const lbColor = lb ? lb.color : "#71717a";
-      labelPickerHtml = `<div class="cs-label-picker"><span class="cs-lp-badge" style="--lb-color:${lbColor}"><span class="cs-lp-badge-dot" style="background:${lbColor}"></span>${lbName}</span></div>`;
+      labelPickerHtml = `<div class="cs-label-picker"><span class="cs-lp-badge" style="--lb-color:${escapeAttr(lbColor)}"><span class="cs-lp-badge-dot" style="background:${lbColor}"></span>${escapeHtml(lbName)}</span></div>`;
     }
 
-    // Author chip (compact)
-    const authorHtml = record._authorName
-      ? `<span class="cs-tp-author">${authorAvatar(record._authorName)}${record._authorName}</span>`
-      : "";
+    /* Show author name - use cloud name, or fallback to "You" for local highlights */
+    const authorName = record._authorName || (cloudSync && cloudSync._userName) || "You";
+    const authorHtml = `<span class="cs-tp-author">${authorAvatar(authorName)}${escapeHtml(authorName)}</span>`;
 
-    // Comments
     const comments = getComments(record);
     const commentsHtml = comments.length > 0
       ? comments
@@ -713,17 +791,17 @@
 
     const inputHtml = canComment
       ? `<div class="cs-comment-input-row">
-           <textarea class="cs-comment-input" placeholder="Comment… (Ctrl+Enter)" rows="1"></textarea>
-           <button class="cs-icon-btn cs-send-comment" title="Send">${IC.send}</button>
+           <textarea class="cs-comment-input" placeholder="Comment… (Ctrl+Enter)" rows="2"></textarea>
+           <button type="button" class="cs-icon-btn cs-send-comment" title="Send">${IC.send}</button>
          </div>`
       : "";
 
     tooltip.innerHTML = `
       <div class="cs-tooltip-header">
         ${authorHtml}
-        <div class="cs-tooltip-header-right">
-          ${canDeleteThis ? `<button class="cs-icon-btn cs-delete" title="Delete">${IC.trash}</button>` : ""}
-          <button class="cs-icon-btn cs-tooltip-close" title="Close">${IC.close}</button>
+        <div class="cs-tooltip-actions">
+          ${canDeleteThis ? `<button type="button" class="cs-icon-btn cs-delete" title="Delete">${IC.trash}</button>` : ""}
+          <button type="button" class="cs-icon-btn cs-tooltip-close" title="Close">${IC.close}</button>
         </div>
       </div>
       ${labelPickerHtml}
@@ -746,12 +824,31 @@
       deleteBtn.addEventListener("click", () => { removeHighlight(id); closeTooltip(); });
     }
 
-    // Label picker events
+    function applyColorToSpans(highlightId, colorName) {
+      const c = colorName || "yellow";
+      document.querySelectorAll(`[data-cs-id="${highlightId}"]`).forEach(span => {
+        span.className = `cs-highlight${c !== "yellow" ? ` cs-color-${c}` : ""}`;
+      });
+    }
+
     tooltip.querySelectorAll(".cs-lp-dot").forEach(dot => {
       dot.addEventListener("click", () => {
-        const newLabel = dot.dataset.lbl || null;
-        record.label = newLabel;
-        if (!newLabel) delete record.label;
+        const rawColor = dot.dataset.rawcolor;
+        const lblKey = dot.dataset.lbl;
+        if (rawColor) {
+          record.color = rawColor;
+          delete record.label;
+          applyColorToSpans(id, rawColor);
+        } else if (lblKey !== undefined) {
+          if (lblKey === "") delete record.label;
+          else if (labels[lblKey]) {
+            record.label = lblKey;
+            record.color = labelToHighlightColor(labels[lblKey].color);
+          }
+          applyColorToSpans(id, record.color || "yellow");
+        } else {
+          return;
+        }
         saveHighlights();
         if (hasCloud) cloudSync.pushHighlight(record).catch(() => {});
         tooltip.querySelectorAll(".cs-lp-dot").forEach(d => d.classList.remove("active"));
@@ -801,53 +898,207 @@
     }
   }
 
+  function getSelectionClientRect() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    if (!r.width && !r.height) return null;
+    return r;
+  }
+
   /* ════════════════════════════════════════════
-     ACTION BAR (shows on text selection)
+     CREATE CARD (selection → compact popover, same shell as tooltip)
      ════════════════════════════════════════════ */
-  function showActionBar(x, y) {
+  async function showActionBar() {
     closeActionBar();
-    snapshotSelection();
+    closeTooltip();
 
-    const bar = document.createElement("div");
-    bar.className = `cs-action-bar${currentTheme === "light" ? " cs-light" : ""}`;
+    /* ── Eagerly capture everything BEFORE any async work ── */
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const selText = sel.toString().trim();
+    if (!selText) return;
+    const selRect = sel.getRangeAt(0).getBoundingClientRect();
+    if (!selRect.width && !selRect.height) return;
 
-    const colors = [
-      { name: "yellow", hex: "#facc15" },
-      { name: "green",  hex: "#34d399" },
-      { name: "blue",   hex: "#60a5fa" },
-      { name: "pink",   hex: "#f472b6" },
-      { name: "orange", hex: "#fb923c" },
-    ];
-    bar.innerHTML = colors.map(c =>
-      `<button data-color="${c.name}" title="${c.name}">
-         <span class="cs-color-dot" style="background:${c.hex}"></span>
-       </button>`
-    ).join("");
+    /* Capture the actual Range while selection is still live — this is the ground truth. */
+    const selRange = sel.getRangeAt(0).cloneRange();
 
-    bar.style.top = (window.scrollY + y - 40) + "px";
-    bar.style.left = (window.scrollX + x) + "px";
-    document.body.appendChild(bar);
-    activeActionBar = bar;
+    /* Get prefix/suffix from the ACTUAL selection position, not first occurrence. */
+    let selPrefix = "", selSuffix = "";
+    try {
+      const bodyText = document.body.innerText;
+      /* Find which occurrence of selText matches our selection by checking all of them
+         and picking the one whose surrounding context matches what we can extract from the Range. */
+      const allIdx = [];
+      let searchIdx = 0;
+      while ((searchIdx = bodyText.indexOf(selText, searchIdx)) !== -1) {
+        allIdx.push(searchIdx);
+        searchIdx += 1;
+      }
+      if (allIdx.length === 1) {
+        const idx = allIdx[0];
+        selPrefix = bodyText.slice(Math.max(0, idx - 32), idx).replace(/\s+/g, " ").trim();
+        selSuffix = bodyText.slice(idx + selText.length, idx + selText.length + 32).replace(/\s+/g, " ").trim();
+      } else if (allIdx.length > 1) {
+        /* Multiple occurrences — try to get context from the Range's container */
+        let rangeContext = "";
+        try {
+          const container = selRange.commonAncestorContainer;
+          const contextNode = container.nodeType === Node.TEXT_NODE ? container.parentElement : container;
+          rangeContext = contextNode?.innerText || "";
+        } catch {}
+        /* Find the occurrence whose surrounding text best matches rangeContext */
+        let bestIdx = allIdx[0];
+        let bestScore = -1;
+        for (const idx of allIdx) {
+          const around = bodyText.slice(Math.max(0, idx - 50), idx + selText.length + 50);
+          let score = 0;
+          if (rangeContext && around.includes(rangeContext.slice(0, 30))) score += 2;
+          if (rangeContext && rangeContext.includes(selText)) score += 1;
+          /* Prefer earlier matches slightly less to avoid always picking first */
+          if (score > bestScore) {
+            bestScore = score;
+            bestIdx = idx;
+          }
+        }
+        selPrefix = bodyText.slice(Math.max(0, bestIdx - 32), bestIdx).replace(/\s+/g, " ").trim();
+        selSuffix = bodyText.slice(bestIdx + selText.length, bestIdx + selText.length + 32).replace(/\s+/g, " ").trim();
+      }
+    } catch {}
 
-    bar.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+    const gen = ++_actionBarGen;
+    if (cloudSync?.isConfigured) {
+      try { await cloudSync.fetchLabels(); } catch {}
+    }
+    if (gen !== _actionBarGen) return;
 
-    bar.addEventListener("click", (e) => {
-      const colorBtn = e.target.closest("button[data-color]");
-      if (!colorBtn) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const record = captureSelection(colorBtn.dataset.color);
+    const myName = (cloudSync && cloudSync._userName) || "You";
+
+    const pop = document.createElement("div");
+    pop.className = "cs-tooltip cs-light cs-create-popover";
+    const pickerHtml = buildRawColorPickerHtml(null);
+    pop.innerHTML = `
+      <div class="cs-tooltip-header">
+        <span class="cs-tp-author">${authorAvatar(myName)}${escapeHtml(myName)}</span>
+        <div class="cs-tooltip-actions">
+          <button type="button" class="cs-icon-btn cs-tooltip-close" title="Close">${IC.close}</button>
+        </div>
+      </div>
+      ${pickerHtml}
+      <div class="cs-comment-input-row cs-create-comment-row">
+        <textarea class="cs-comment-input" placeholder="Comment… (Ctrl+Enter)" rows="2"></textarea>
+        <button type="button" class="cs-icon-btn cs-send-comment" title="Create highlight">${IC.send}</button>
+      </div>
+    `;
+
+    /* Position centered under selection — calculate in JS to avoid transform flicker */
+    const popWidth = 240;
+    const cx = selRect.left + selRect.width / 2;
+    const leftPos = Math.max(10, Math.min(window.scrollX + cx - popWidth / 2, window.innerWidth - popWidth - 10));
+    pop.style.top = (window.scrollY + selRect.bottom + 6) + "px";
+    pop.style.left = leftPos + "px";
+    document.body.appendChild(pop);
+    activeActionBar = pop;
+
+    pop.querySelector(".cs-tooltip-close").addEventListener("click", closeActionBar);
+
+    const textarea = pop.querySelector(".cs-comment-input");
+    const sendBtn = pop.querySelector(".cs-send-comment");
+
+    /**
+     * Create highlight. Try the saved Range first (most accurate), fall back to
+     * findTextInDOM if the Range became invalid.
+     */
+    function doCreate(color) {
+      const commentText = textarea.value.trim();
+      const chosenColor = color || DEFAULT_CREATE_RAW_COLOR;
+
+      /* Try the original cloned Range first — it's the most accurate */
+      let range = null;
+      try {
+        if (selRange && selRange.toString().trim() === selText) {
+          range = selRange;
+        }
+      } catch {}
+
+      /* Fallback: re-find the text using prefix/suffix context */
+      if (!range) {
+        range = findTextInDOM(selText, selPrefix, selSuffix);
+      }
+
+      if (!range) {
+        console.warn("[Vantage] Could not find selected text in DOM for highlight");
+        closeActionBar();
+        return;
+      }
+
+      const id = uid();
+      wrapRange(range, id, chosenColor);
+      try { window.getSelection()?.removeAllRanges(); } catch {}
+
+      const record = {
+        id,
+        text: selText,
+        comments: [],
+        color: chosenColor,
+        anchor: {
+          startContainerXPath: getXPath(range.startContainer),
+          startOffset: range.startOffset,
+          endContainerXPath: getXPath(range.endContainer),
+          endOffset: range.endOffset,
+          prefix: selPrefix,
+          suffix: selSuffix,
+        },
+        createdAt: new Date().toISOString(),
+        url: getCurrentUrl(),
+        title: document.title,
+      };
+
+      highlights.push(record);
+      saveHighlights();
+      if (cloudSync && cloudSync.isConfigured && cloudSync.canHighlight) {
+        cloudSync.pushHighlight(record).catch(() => {});
+      }
+
+      if (commentText) {
+        const author = (cloudSync && cloudSync._userName) || "You";
+        record.comments.push({ text: commentText, author, createdAt: new Date().toISOString() });
+        saveHighlights();
+        if (cloudSync && cloudSync.isConfigured) cloudSync.pushHighlight(record).catch(() => {});
+      }
+
       closeActionBar();
-      if (record) {
-        setTimeout(() => {
-          const el = document.querySelector(`[data-cs-id="${record.id}"]`);
-          if (el) showTooltip(el);
-        }, 50);
+      console.log("[Vantage] Highlighted:", selText.slice(0, 60), "with color:", chosenColor);
+    }
+
+    /* Clicking a color dot immediately creates the highlight with that color */
+    pop.querySelectorAll(".cs-lp-dot").forEach(dot => {
+      dot.addEventListener("mousedown", (e) => { e.preventDefault(); });
+      dot.addEventListener("click", () => {
+        const color = dot.dataset.rawcolor;
+        if (color) doCreate(color);
+      });
+    });
+
+    /* Send button uses the active dot's color (or default) */
+    sendBtn.addEventListener("click", () => {
+      const activeDot = pop.querySelector(".cs-lp-dot-raw.active");
+      doCreate(activeDot?.dataset.rawcolor);
+    });
+    textarea.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeActionBar();
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const activeDot = pop.querySelector(".cs-lp-dot-raw.active");
+        doCreate(activeDot?.dataset.rawcolor);
       }
     });
+    textarea.focus();
   }
 
   function closeActionBar() {
+    _actionBarGen++;
     if (activeActionBar) {
       activeActionBar.remove();
       activeActionBar = null;
@@ -886,12 +1137,13 @@
   document.addEventListener("mouseup", (e) => {
     if (!isActive) return;
     if (cloudSync && !cloudSync.canHighlight) return; // viewers can't create highlights
-    if (e.target.closest(".cs-tooltip, .cs-action-bar")) return;
+    if (e.target.closest(".cs-tooltip")) return;
+    if (e.target.closest(".cs-highlight")) return; // don't open create popover when clicking highlights
 
     setTimeout(() => {
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim()) {
-        showActionBar(e.clientX, e.clientY);
+        showActionBar();
       } else {
         closeActionBar();
       }
@@ -900,16 +1152,20 @@
 
   // Click on existing highlight → open tooltip
   document.addEventListener("click", (e) => {
-    if (e.target.closest(".cs-action-bar")) return;
+    if (e.target.closest(".cs-create-popover")) return;
     const hlEl = e.target.closest(".cs-highlight");
     if (hlEl) {
       e.preventDefault();
       e.stopPropagation();
+      closeActionBar(); // close create popover if open
       showTooltip(hlEl);
       return;
     }
     if (activeTooltip && !e.target.closest(".cs-tooltip")) {
       closeTooltip();
+    }
+    if (activeActionBar && !e.target.closest(".cs-tooltip")) {
+      closeActionBar();
     }
   });
 
