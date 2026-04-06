@@ -604,10 +604,86 @@ body {
   width: 100%;
   justify-content: center;
 }
-.room-settings-danger-row {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+.room-settings-btn.secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.room-settings-btn.secondary:hover {
+  background: var(--bg-tertiary);
+  opacity: 1;
+}
+.label-help {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0 0 8px 0;
+  max-width: 420px;
+}
+.room-settings-danger-zone {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.room-delete-lead {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0 0 8px 0;
+  max-width: 420px;
+}
+.room-delete-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0 0 10px 0;
+  max-width: 420px;
+}
+.room-settings-btn.danger:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  opacity: 0.85;
+}
+.room-settings-btn.danger:disabled:hover {
+  opacity: 0.85;
+}
+
+.room-item-owner {
+  font-size: 7px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #a855f7;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.22);
+  flex-shrink: 0;
+}
+.room-item-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-left: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.room-item-delete:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger, #ef4444);
+}
+.room-item-delete:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* Key Manager */
@@ -1044,6 +1120,20 @@ body {
   max-width: 340px;
 }
 
+.dash-idle-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48vh;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 420px;
+  margin: 0 auto;
+}
+
 kbd {
   display: inline-block;
   padding: 2px 6px;
@@ -1401,6 +1491,22 @@ kbd {
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════ PAGE NOTE CARD ═══════════ */
+.card-page-note-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.card-page-note-badge svg {
+  flex-shrink: 0;
+}
+.highlight-card.page-note-card {
+  border-left: 2px solid var(--accent);
 }
 
 /* Scrollbar */

@@ -88,6 +88,11 @@ const _nameCache = new Map();
 
 function roleRank(r) { return r === "editor" ? 3 : r === "commentor" ? 2 : 1; }
 
+function roomCreatorRegistryKey(firebaseUrl, packKey) {
+  const url = (firebaseUrl || "").replace(/\/+$/, "");
+  return `${url}::${packKey}`;
+}
+
 /* ════════════════════════════════════════════
    PER-WINDOW SESSION IDS
    Uses chrome.storage.session (survives SW restarts,
@@ -179,6 +184,22 @@ function addToRoomHistory(config, callback) {
   });
 }
 
+/** Next default name "My Room 1", "My Room 2", … from history (treats plain "My Room" as 1). */
+function nextNumberedRoomName(history) {
+  const base = "My Room";
+  let max = 0;
+  const esc = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${esc}(?:\\s+(\\d+))?$`, "i");
+  for (const r of history || []) {
+    const n = (r.packName || "").trim();
+    const m = n.match(re);
+    if (!m) continue;
+    const num = m[1] ? parseInt(m[1], 10) : 1;
+    if (num > max) max = num;
+  }
+  return `${base} ${max + 1}`;
+}
+
 // ── Message Router ────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "open-dashboard") {
@@ -227,29 +248,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     ).join("");
     const packKey = `CS-${block()}-${block()}`;
 
-    const meta = {
-      name: name || "My Room",
-      createdAt: new Date().toISOString(),
-      defaultRole: "commentor",
-      labels: DEFAULT_LABELS,
-    };
+    chrome.storage.local.get("roomHistory", (data) => {
+      const history = data.roomHistory || [];
+      const requested = (name || "").trim();
+      const useAuto = !requested || requested === "My Room";
+      const roomName = useAuto ? nextNumberedRoomName(history) : requested;
 
-    resolveWindowId(sender).then(windowId => {
-      fetch(`${url}/packs/${packKey}/meta.json`, {
-        method: "PUT",
-        body: JSON.stringify(meta),
-      })
-        .then(resp => {
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          assignRoomName(url, packKey, windowId, (userName) => {
-            const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor", userName };
-            chrome.storage.local.set({ cloudPack: config }, () => {
-              writePresenceFromBg(url, packKey, "editor", userName, windowId);
-              addToRoomHistory(config, () => sendResponse({ ok: true, config }));
-            });
-          });
+      const meta = {
+        name: roomName,
+        createdAt: new Date().toISOString(),
+        defaultRole: "commentor",
+      };
+
+      resolveWindowId(sender).then(windowId => {
+        fetch(`${url}/packs/${packKey}/meta.json`, {
+          method: "PUT",
+          body: JSON.stringify(meta),
         })
-        .catch(err => sendResponse({ error: err.message }));
+          .then(resp => {
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            assignRoomName(url, packKey, windowId, (userName) => {
+              const config = { firebaseUrl: url, packKey, packName: meta.name, role: "editor", userName };
+              chrome.storage.local.get("roomCreatorRegistry", (regData) => {
+                const reg = { ...(regData.roomCreatorRegistry || {}) };
+                reg[roomCreatorRegistryKey(url, packKey)] = Date.now();
+                chrome.storage.local.set({ cloudPack: config, roomCreatorRegistry: reg }, () => {
+                  writePresenceFromBg(url, packKey, "editor", userName, windowId);
+                  addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+                });
+              });
+            });
+          })
+          .catch(err => sendResponse({ error: err.message }));
+      });
     });
     return true;
   }
@@ -266,10 +297,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         let meta = metaResp.ok ? await metaResp.json() : null;
         let roomKey = inputKey;
         let role = "editor";
+        let joinedWithMasterKey = false;
 
         if (meta) {
           // Master key — join as editor
           role = "editor";
+          joinedWithMasterKey = true;
         } else {
           // Step 2: check the global key index for an invite key
           const idxResp = await fetch(`${url}/keyIndex/${inputKey}.json`);
@@ -284,10 +317,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         assignRoomName(url, roomKey, windowId, (userName) => {
           const config = { firebaseUrl: url, packKey: roomKey, packName: meta.name || roomKey, role, userName };
-          chrome.storage.local.set({ cloudPack: config }, () => {
-            writePresenceFromBg(url, roomKey, role, userName, windowId);
-            addToRoomHistory(config, () => sendResponse({ ok: true, config }));
-          });
+          const finish = (extra = {}) => {
+            chrome.storage.local.set({ cloudPack: config, ...extra }, () => {
+              writePresenceFromBg(url, roomKey, role, userName, windowId);
+              addToRoomHistory(config, () => sendResponse({ ok: true, config }));
+            });
+          };
+          // Master key join (pack key CS-…) — same delete eligibility as creator on this profile
+          if (joinedWithMasterKey) {
+            chrome.storage.local.get("roomCreatorRegistry", (regData) => {
+              const reg = { ...(regData.roomCreatorRegistry || {}) };
+              reg[roomCreatorRegistryKey(url, roomKey)] = Date.now();
+              finish({ roomCreatorRegistry: reg });
+            });
+          } else {
+            finish();
+          }
         });
       } catch (err) {
         sendResponse({ error: err.message });
@@ -402,7 +447,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "get-my-name") {
-    const { firebaseUrl, packKey } = msg;
+    const { firebaseUrl, packKey, preferredName } = msg;
     const windowId = sender?.tab?.windowId;
     if (windowId === undefined) { sendResponse({ name: null }); return true; }
     const url = (firebaseUrl || "").replace(/\/+$/, "");
@@ -415,9 +460,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       const lookup = fetch(`${url}/packs/${packKey}/members/${sessionId}.json`)
         .then(resp => resp.ok ? resp.json() : null)
-        .then(data => {
+        .then(async (data) => {
           if (data && data.name) return data.name;
-          const name = generateAnonName();
+          let name = generateAnonName();
+          if (preferredName && preferredName !== "Anonymous") {
+            name = preferredName;
+            // Remove old member entries with the same preferred name to avoid duplicates
+            try {
+              const allResp = await fetch(`${url}/packs/${packKey}/members.json`);
+              if (allResp.ok) {
+                const allMembers = await allResp.json();
+                if (allMembers) {
+                  for (const [oldSid, m] of Object.entries(allMembers)) {
+                    if (oldSid !== sessionId && m.name === preferredName) {
+                      fetch(`${url}/packs/${packKey}/members/${oldSid}.json`, { method: "DELETE" }).catch(() => {});
+                    }
+                  }
+                }
+              }
+            } catch {}
+          }
           const entry = { name, joinedAt: new Date().toISOString() };
           fetch(`${url}/packs/${packKey}/members/${sessionId}.json`, {
             method: "PUT",
@@ -435,6 +497,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === "get-name-colors") {
     sendResponse(NAME_COLOR_HEX);
+    return true;
+  }
+
+  if (msg.action === "get-starter-labels") {
+    sendResponse(DEFAULT_LABELS);
     return true;
   }
 
@@ -484,8 +551,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!data) { sendResponse({}); return; }
         const cutoff = Date.now() - 60000;
         const active = {};
-        for (const [id, info] of Object.entries(data)) {
-          if (info && info.lastSeen > cutoff) active[id] = info;
+        const seenNames = new Set();
+        const entries = Object.entries(data)
+          .filter(([, info]) => info && info.lastSeen > cutoff)
+          .sort((a, b) => b[1].lastSeen - a[1].lastSeen);
+        for (const [id, info] of entries) {
+          const nameKey = String(info.name || "Anonymous").trim().toLowerCase();
+          if (seenNames.has(nameKey)) continue;
+          seenNames.add(nameKey);
+          active[id] = info;
         }
         sendResponse(active);
       })
@@ -577,23 +651,59 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "is-room-creator") {
+    const { firebaseUrl, packKey } = msg;
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    if (!url || !packKey) { sendResponse({ isCreator: false }); return true; }
+    const rk = roomCreatorRegistryKey(url, packKey);
+    chrome.storage.local.get("roomCreatorRegistry", (data) => {
+      const reg = data.roomCreatorRegistry || {};
+      sendResponse({ isCreator: !!reg[rk] });
+    });
+    return true;
+  }
+
   if (msg.action === "delete-room") {
     const { firebaseUrl, packKey } = msg;
     const url = (firebaseUrl || "").replace(/\/+$/, "");
-    if (!url || !packKey) { sendResponse({ ok: false }); return true; }
-    fetch(`${url}/packs/${packKey}.json`, { method: "DELETE" })
-      .then(resp => {
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        chrome.storage.local.get(["roomHistory", "cloudPack"], (data) => {
-          const history = (data.roomHistory || []).filter(r => r.packKey !== packKey);
-          const updates = { roomHistory: history };
-          if (data.cloudPack && data.cloudPack.packKey === packKey) {
-            updates.cloudPack = null;
-          }
-          chrome.storage.local.set(updates, () => sendResponse({ ok: true }));
+    if (!url || !packKey) { sendResponse({ ok: false, error: "Missing room" }); return true; }
+    const rk = roomCreatorRegistryKey(url, packKey);
+    chrome.storage.local.get("roomCreatorRegistry", (regData) => {
+      const reg = regData.roomCreatorRegistry || {};
+      if (!reg[rk]) {
+        sendResponse({
+          error: "Only the room creator can delete this room. It must be deleted from the same browser profile where the room was created.",
         });
-      })
-      .catch(err => sendResponse({ error: err.message }));
+        return;
+      }
+      const cleanupKeyIndex = () =>
+        fetch(`${url}/packs/${packKey}/keys.json`)
+          .then(r => (r.ok ? r.json() : {}))
+          .then(keysObj => {
+            const keys = Object.keys(keysObj || {});
+            return Promise.all(
+              keys.map(k => fetch(`${url}/keyIndex/${k}.json`, { method: "DELETE" }).catch(() => {}))
+            );
+          })
+          .catch(() => {});
+
+      cleanupKeyIndex()
+        .then(() => fetch(`${url}/packs/${packKey}.json`, { method: "DELETE" }))
+        .then(resp => {
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const nextReg = { ...reg };
+          delete nextReg[rk];
+          chrome.storage.local.get(["roomHistory", "cloudPack"], (data) => {
+            const history = (data.roomHistory || []).filter(r => r.packKey !== packKey);
+            const updates = { roomHistory: history, roomCreatorRegistry: nextReg };
+            if (data.cloudPack && data.cloudPack.packKey === packKey) {
+              updates.cloudPack = null;
+            }
+            chrome.storage.local.set(updates, () => sendResponse({ ok: true }));
+          });
+        })
+        .catch(err => sendResponse({ error: err.message }));
+    });
     return true;
   }
 
@@ -609,7 +719,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "clear-all-data") {
-    chrome.storage.local.remove(["highlights", "cloudPack", "roomHistory"], () => {
+    chrome.storage.local.remove(["highlights", "cloudPack", "roomHistory", "roomCreatorRegistry"], () => {
       sendResponse({ ok: true });
     });
     return true;

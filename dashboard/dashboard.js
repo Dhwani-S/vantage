@@ -8,7 +8,7 @@
   "use strict";
 
   let allData = {};          // { url: [highlights] }
-  let currentView = "domain"; // domain | date | all | room
+  let currentView = "domain"; // domain | date | all | room | none
   let filterDomain = null;
   let searchQuery = "";
   let selectedIds = new Set();
@@ -157,6 +157,21 @@
     );
   }
 
+  function roomOwnerRegistryKey(firebaseUrl, packKey) {
+    const url = (firebaseUrl || "").replace(/\/+$/, "");
+    return `${url}::${packKey}`;
+  }
+
+  function afterRoomDeleted(deletedPackKey) {
+    if (selectedRoom && selectedRoom.packKey === deletedPackKey) {
+      selectedRoom = null;
+      currentView = "domain";
+      filterRoomDomain = null;
+    }
+    loadCloudStatus();
+    loadData();
+  }
+
   function loadRoomManager(activeConfig) {
     chrome.runtime.sendMessage({ action: "get-room-history" }, (history) => {
       const section = document.getElementById("roomManagerSection");
@@ -168,34 +183,75 @@
       }
       section.style.display = "";
       const activeKey = activeConfig?.packKey;
-      list.innerHTML = history.map(r => {
-        const isActive = r.packKey === activeKey;
-        const isSelected = selectedRoom && selectedRoom.packKey === r.packKey;
-        return `
+      chrome.storage.local.get("roomCreatorRegistry", (regData) => {
+        const reg = regData.roomCreatorRegistry || {};
+        list.innerHTML = history.map(r => {
+          const isActive = r.packKey === activeKey;
+          const isSelected = selectedRoom && selectedRoom.packKey === r.packKey;
+          const canDelete = !!reg[roomOwnerRegistryKey(r.firebaseUrl, r.packKey)];
+          return `
           <div class="room-item${isActive ? " room-active" : ""}${isSelected ? " room-selected" : ""}"
                data-key="${escapeAttr(r.packKey)}" data-url="${escapeAttr(r.firebaseUrl)}"
                data-name="${escapeAttr(r.packName || r.packKey)}" data-role="${escapeAttr(r.role || "viewer")}">
             <span class="room-item-name">${escapeHTML(r.packName || r.packKey)}</span>
             <div class="room-item-meta">
+              ${canDelete ? `<span class="room-item-owner" title="You can delete this room from this browser (created here or joined with the master room key)">Owner</span>` : ""}
               <span class="room-item-role role-${r.role || "viewer"}">${r.role || "viewer"}</span>
               ${isActive ? '<span class="room-item-live"></span>' : ""}
+              ${canDelete ? `<button type="button" class="room-item-delete" title="Delete room" aria-label="Delete room">${SVG_TRASH}</button>` : ""}
             </div>
           </div>
         `;
-      }).join("");
+        }).join("");
 
-      list.querySelectorAll(".room-item").forEach(item => {
-        item.addEventListener("click", () => {
-          selectedRoom = {
-            firebaseUrl: item.dataset.url,
-            packKey: item.dataset.key,
-            packName: item.dataset.name,
-            role: item.dataset.role,
-          };
-          currentView = "room";
-          document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-          render();
-          loadRoomManager(activeCloudConfig);
+        list.querySelectorAll(".room-item").forEach(item => {
+          item.addEventListener("click", (e) => {
+            if (e.target.closest(".room-item-delete")) return;
+            const key = item.dataset.key;
+            if (selectedRoom && selectedRoom.packKey === key && currentView === "room") {
+              selectedRoom = null;
+              currentView = "none";
+              filterRoomDomain = null;
+              render();
+              loadRoomManager(activeCloudConfig);
+              return;
+            }
+            selectedRoom = {
+              firebaseUrl: item.dataset.url,
+              packKey: item.dataset.key,
+              packName: item.dataset.name,
+              role: item.dataset.role,
+            };
+            currentView = "room";
+            render();
+            loadRoomManager(activeCloudConfig);
+          });
+        });
+
+        list.querySelectorAll(".room-item-delete").forEach(btn => {
+          btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const row = btn.closest(".room-item");
+            if (!row) return;
+            const packKey = row.dataset.key;
+            const firebaseUrl = row.dataset.url;
+            const packName = row.dataset.name;
+            if (!confirm(`Delete room "${packName}"? This removes it for everyone and cannot be undone.`)) return;
+            btn.disabled = true;
+            chrome.runtime.sendMessage(
+              { action: "delete-room", firebaseUrl, packKey },
+              (resp) => {
+                btn.disabled = false;
+                if (resp?.ok) {
+                  toast("Room deleted!");
+                  afterRoomDeleted(packKey);
+                } else {
+                  toast(resp?.error || "Failed to delete room");
+                }
+              }
+            );
+          });
         });
       });
     });
@@ -220,9 +276,18 @@
     // Nav buttons
     document.querySelectorAll(".nav-btn").forEach(btn => {
       btn.addEventListener("click", () => {
-        document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        currentView = btn.dataset.view;
+        const view = btn.dataset.view;
+        if (currentView === view && !selectedRoom) {
+          currentView = "none";
+          filterDomain = null;
+          filterLabel = null;
+          filterAuthor = null;
+          filterRoomDomain = null;
+          render();
+          loadRoomManager(activeCloudConfig);
+          return;
+        }
+        currentView = view;
         filterDomain = null;
         filterLabel = null;
         filterAuthor = null;
@@ -313,11 +378,19 @@
   /* ════════════════════════════════════════════
      RENDER
      ════════════════════════════════════════════ */
+  function syncNavActiveState() {
+    document.querySelectorAll(".nav-btn").forEach(b => {
+      const v = b.dataset.view;
+      b.classList.toggle("active", currentView === v && currentView !== "none" && currentView !== "room");
+    });
+  }
+
   function render() {
     updateStats();
     renderDomainList();
     renderFilterBar();
     renderContent();
+    syncNavActiveState();
     updateDeleteBtn();
   }
 
@@ -357,6 +430,7 @@
     list.querySelectorAll(".domain-item").forEach(el => {
       el.addEventListener("click", () => {
         filterDomain = filterDomain === el.dataset.domain ? null : el.dataset.domain;
+        if (currentView === "none") currentView = "domain";
         render();
       });
     });
@@ -369,6 +443,14 @@
     const authorContainer = document.getElementById("authorFilters");
     const bar = document.getElementById("filterBar");
     if (!labelContainer || !authorContainer || !bar) return;
+
+    if (currentView === "none") {
+      bar.style.display = "none";
+      if (domainContainer) domainContainer.innerHTML = "";
+      labelContainer.innerHTML = "";
+      authorContainer.innerHTML = "";
+      return;
+    }
 
     const allFlat = [];
     const domainCounts = {};
@@ -479,6 +561,12 @@
       return;
     }
 
+    if (currentView === "none") {
+      content.innerHTML = `<div class="dash-idle-hint">Choose <strong>By Domain</strong>, <strong>By Date</strong>, or <strong>All Annotations</strong>, or pick a room below.</div>`;
+      document.getElementById("viewTitle").textContent = "Overview";
+      return;
+    }
+
     const flat = getFlatHighlights();
 
     if (flat.length === 0) {
@@ -533,7 +621,8 @@
     // Filter by search
     if (searchQuery) {
       flat = flat.filter(h =>
-        h.text.toLowerCase().includes(searchQuery) ||
+        (h.text || "").toLowerCase().includes(searchQuery) ||
+        (h.type === "page-note" && "page note".includes(searchQuery)) ||
         (getComments(h).some(c => c.text.toLowerCase().includes(searchQuery))) ||
         h.url.toLowerCase().includes(searchQuery) ||
         (h.title && h.title.toLowerCase().includes(searchQuery)) ||
@@ -581,9 +670,12 @@
 
   const SVG_LOCK_SM = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
 
+  const SVG_PAGE_NOTE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/></svg>`;
+
   function cardHTML(h) {
+    const isPageNote = h.type === "page-note";
     const date = new Date(h.createdAt).toLocaleString();
-    const colorClass = h.color && h.color !== "yellow" ? ` color-${h.color}` : "";
+    const colorClass = (!isPageNote && h.color && h.color !== "yellow") ? ` color-${h.color}` : "";
     const checked = selectedIds.has(h.id) ? " checked" : "";
     const selectedClass = selectedIds.has(h.id) ? " selected" : "";
     const safeUrl = escapeAttr(h.url);
@@ -611,11 +703,15 @@
         })()
       : "";
 
+    const textContent = isPageNote
+      ? `<span class="card-page-note-badge">${SVG_PAGE_NOTE} Page Note</span>`
+      : escapeHTML(h.text);
+
     return `
-      <div class="highlight-card${selectedClass}${!deletable ? " readonly" : ""}" data-id="${escapeAttr(h.id)}" data-url="${safeUrl}" data-deletable="${deletable}">
+      <div class="highlight-card${selectedClass}${!deletable ? " readonly" : ""}${isPageNote ? " page-note-card" : ""}" data-id="${escapeAttr(h.id)}" data-url="${safeUrl}" data-deletable="${deletable}">
         <input type="checkbox" class="card-checkbox"${checked} />
         <div class="card-body">
-          <div class="card-text${colorClass}">${escapeHTML(h.text)}</div>
+          <div class="card-text${colorClass}">${textContent}</div>
           ${renderCommentsPreview(h)}
           <div class="card-meta">
             <a href="${safeUrl}" target="_blank" title="${safeUrl}">${safeTitle}</a>
@@ -943,6 +1039,7 @@
         if (searchQuery) {
           flat = flat.filter(h =>
             (h.text || "").toLowerCase().includes(searchQuery) ||
+            (h.type === "page-note" && "page note".includes(searchQuery)) ||
             getComments(h).some(c => c.text.toLowerCase().includes(searchQuery)) ||
             h._url.toLowerCase().includes(searchQuery)
           );
@@ -982,10 +1079,14 @@
                   return `<span class="card-label" style="--lb-color:${lbColor}"><span class="card-label-dot" style="background:${lbColor}"></span>${lbName}</span>`;
                 })()
               : "";
+            const isPN = hl.type === "page-note";
+            const textContent = isPN
+              ? `<span class="card-page-note-badge">${SVG_PAGE_NOTE} Page Note</span>`
+              : escapeHTML(hl.text || "");
             html += `
-              <div class="highlight-card room-card" data-id="${escapeAttr(hl._id)}" data-url="${safeUrl}">
+              <div class="highlight-card room-card${isPN ? " page-note-card" : ""}" data-id="${escapeAttr(hl._id)}" data-url="${safeUrl}">
                 <div class="card-body">
-                  <div class="card-text">${escapeHTML(hl.text || "")}</div>
+                  <div class="card-text">${textContent}</div>
                   ${renderCommentsPreview(hl)}
                   <div class="card-meta">
                     <a href="${safeUrl}" target="_blank" title="${safeUrl}">${escapeHTML(pageUrl)}</a>
@@ -1043,6 +1144,12 @@
             ${SVG_CHEVRON}
           </button>
           <div class="room-accordion-body" id="roomSettingsBody" style="display:none">
+            <div class="room-settings-row room-settings-danger-zone">
+              <label>Delete room</label>
+              <p class="room-delete-lead">Remove this room from Firebase for everyone. Only available on this browser if you <strong>created</strong> the room here or <strong>joined with the master room key</strong> (the CS-… code).</p>
+              <p class="room-delete-hint" id="deleteRoomHint">You don’t have owner rights on this profile for this room. Use the browser where you created it or re-join using the master key once to enable delete.</p>
+              <button type="button" class="room-settings-btn danger" id="btnDeleteRoom">Delete room</button>
+            </div>
             <div class="room-settings-row">
               <label>Room Name</label>
               <div class="room-settings-inline">
@@ -1060,6 +1167,8 @@
             </div>
             <div class="room-settings-row">
               <label>Labels</label>
+              <p class="label-help" id="labelHelp"></p>
+              <button type="button" class="room-settings-btn secondary" id="btnStarterLabels">Add starter labels</button>
               <div class="label-manager" id="labelManager">
                 <div class="label-list" id="labelList"></div>
                 <div class="label-add-row">
@@ -1082,9 +1191,6 @@
                   <button class="room-settings-btn" id="btnAddKey">${SVG_KEY} Add Key</button>
                 </div>
               </div>
-            </div>
-            <div class="room-settings-row room-settings-danger-row">
-              <button class="room-settings-btn danger" id="btnDeleteRoom">Delete Room</button>
             </div>
           </div>
         </div>
@@ -1176,27 +1282,44 @@
     }
 
     const deleteBtn = container.querySelector("#btnDeleteRoom");
-    if (deleteBtn) {
-      deleteBtn.addEventListener("click", () => {
-        if (!confirm(`Delete room "${selectedRoom.packName || selectedRoom.packKey}"? This cannot be undone.`)) return;
-        deleteBtn.textContent = "Deleting…";
-        chrome.runtime.sendMessage({
-          action: "delete-room",
-          firebaseUrl: selectedRoom.firebaseUrl,
-          packKey: selectedRoom.packKey,
-        }, (resp) => {
-          if (resp?.ok) {
-            toast("Room deleted!");
-            selectedRoom = null;
-            currentView = "domain";
-            loadCloudStatus();
-            loadData();
-          } else {
-            deleteBtn.textContent = "Delete Room";
-            toast(resp?.error || "Failed to delete room");
-          }
-        });
+    const deleteHint = container.querySelector("#deleteRoomHint");
+    if (deleteBtn && selectedRoom) {
+      chrome.storage.local.get("roomCreatorRegistry", (data) => {
+        const reg = data.roomCreatorRegistry || {};
+        const creator = !!reg[roomOwnerRegistryKey(selectedRoom.firebaseUrl, selectedRoom.packKey)];
+        deleteBtn.disabled = !creator;
+        deleteBtn.title = creator
+          ? "Permanently delete this room for everyone"
+          : "Owner only: create the room on this browser or join once with the master CS-… key";
+        if (deleteHint) deleteHint.style.display = creator ? "none" : "block";
       });
+      deleteBtn.onclick = () => {
+        if (deleteBtn.disabled) return;
+        if (!confirm(`Delete room "${selectedRoom.packName || selectedRoom.packKey}"? This cannot be undone for everyone.`)) return;
+        deleteBtn.textContent = "Deleting…";
+        deleteBtn.disabled = true;
+        chrome.runtime.sendMessage(
+          {
+            action: "delete-room",
+            firebaseUrl: selectedRoom.firebaseUrl,
+            packKey: selectedRoom.packKey,
+          },
+          (resp) => {
+            if (resp?.ok) {
+              toast("Room deleted!");
+              afterRoomDeleted(selectedRoom.packKey);
+            } else {
+              deleteBtn.textContent = "Delete room";
+              deleteBtn.disabled = false;
+              chrome.storage.local.get("roomCreatorRegistry", (d) => {
+                const reg = d.roomCreatorRegistry || {};
+                deleteBtn.disabled = !reg[roomOwnerRegistryKey(selectedRoom.firebaseUrl, selectedRoom.packKey)];
+              });
+              toast(resp?.error || "Failed to delete room");
+            }
+          }
+        );
+      };
     }
   }
 
@@ -1304,6 +1427,38 @@
         cachedLabels = roomLabels;
         const listEl = container.querySelector("#labelList");
         if (!listEl) return;
+
+        const helpEl = container.querySelector("#labelHelp");
+        if (helpEl) {
+          helpEl.textContent = Object.keys(roomLabels).length === 0
+            ? "No labels: highlights use free colors only. Add custom labels or use “Add starter labels” (Info, Bug, Question, …)."
+            : "Highlighting uses only these labels; each maps to a color. Remove all labels to switch back to free colors.";
+        }
+
+        const starterBtn = container.querySelector("#btnStarterLabels");
+        if (starterBtn && !starterBtn._wired) {
+          starterBtn._wired = true;
+          starterBtn.addEventListener("click", () => {
+            chrome.runtime.sendMessage({ action: "get-starter-labels" }, (starter) => {
+              if (chrome.runtime.lastError || !starter) {
+                toast("Could not load starter labels");
+                return;
+              }
+              chrome.runtime.sendMessage(
+                {
+                  action: "get-room-labels",
+                  firebaseUrl: selectedRoom.firebaseUrl,
+                  packKey: selectedRoom.packKey,
+                },
+                (current) => {
+                  const cur = current && typeof current === "object" ? current : {};
+                  const merged = { ...starter, ...cur };
+                  saveRoomLabels(merged, () => loadAndRenderLabels(container));
+                }
+              );
+            });
+          });
+        }
 
         listEl.innerHTML = Object.entries(roomLabels).map(([id, lb]) =>
           `<div class="label-item" data-label-id="${escapeAttr(id)}">

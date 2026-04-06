@@ -105,6 +105,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.close();
   });
 
+  // ── Page Note Button ────────────────────────
+  document.getElementById("btnPageNote").addEventListener("click", async () => {
+    if (!currentTab?.id) return;
+    try {
+      await chrome.tabs.sendMessage(currentTab.id, { action: "add-page-note" });
+    } catch {}
+    window.close();
+  });
+
   // ── Dashboard Button ────────────────────────
   document.getElementById("btnDashboard").addEventListener("click", () => {
     chrome.runtime.sendMessage({ action: "open-dashboard" });
@@ -148,7 +157,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     chrome.storage.local.set({ firebaseUrl: fbUrl });
     chrome.runtime.sendMessage(
-      { action: "create-cloud-pack", firebaseUrl: fbUrl, name: "My Room" },
+      { action: "create-cloud-pack", firebaseUrl: fbUrl },
       (resp) => {
         btn.disabled = false;
         btn.textContent = "Create Pack";
