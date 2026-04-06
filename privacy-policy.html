@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Vantage</title>
+  <style>
+    :root { --bg: #0f0d1a; --fg: #e2e0ea; --muted: #9794a8; --accent: #818cf8; --card: #1a1730; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.7; }
+    .container { max-width: 680px; margin: 0 auto; padding: 60px 24px 80px; }
+    h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 6px; }
+    .subtitle { color: var(--muted); font-size: 0.875rem; margin-bottom: 40px; }
+    h2 { font-size: 1.125rem; font-weight: 600; margin: 32px 0 12px; color: var(--accent); }
+    p, li { font-size: 0.9375rem; color: var(--fg); margin-bottom: 12px; }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 6px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .card { background: var(--card); border-radius: 10px; padding: 20px 24px; margin: 20px 0; }
+    code { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; background: rgba(129,140,248,0.1); padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Privacy Policy</h1>
+    <p class="subtitle">Vantage - Collaborative Web Highlighter &middot; Last updated: April 6, 2026</p>
+
+    <h2>1. What Vantage Does</h2>
+    <p>Vantage is a browser extension that lets users highlight, annotate, and collaboratively comment on web page content. Highlights and comments can be shared in real time through cloud-synced "rooms."</p>
+
+    <h2>2. Data We Collect</h2>
+    <div class="card">
+      <ul>
+        <li><strong>Highlighted text</strong> — the text you select and its surrounding context (a few words before and after) to re-anchor the highlight on page reload.</li>
+        <li><strong>Comments</strong> — any comments you add to highlights or pages.</li>
+        <li><strong>Page URL and title</strong> — to associate highlights with the correct page.</li>
+        <li><strong>Anonymous display name</strong> — a randomly generated "Adjective Animal" name (e.g., "Ruby Raven") assigned per session. No real names or email addresses are collected.</li>
+        <li><strong>Presence heartbeat</strong> — a periodic signal indicating you are active in a room, used solely to display online status to other room members.</li>
+      </ul>
+    </div>
+
+    <h2>3. Data We Do NOT Collect</h2>
+    <ul>
+      <li>Browsing history or page content beyond what you explicitly highlight.</li>
+      <li>Personal information such as your real name, email, or IP address.</li>
+      <li>Cookies or tracking identifiers for advertising.</li>
+      <li>Keystroke or form-field data.</li>
+    </ul>
+
+    <h2>4. How Data Is Stored</h2>
+    <p>Highlights and comments are stored in two locations:</p>
+    <ul>
+      <li><strong>Locally</strong> — in Chrome's <code>chrome.storage.local</code>, which stays on your device.</li>
+      <li><strong>Cloud (optional)</strong> — when you join or create a room, data is synced to a <strong>Firebase Realtime Database</strong> instance. Data is stored under a room key that you control and share.</li>
+    </ul>
+
+    <h2>5. Who Can See Your Data</h2>
+    <p>Only people who have a room's access key can read or write highlights in that room. Rooms support role-based access (viewer, commentor, editor). You choose what to share and with whom.</p>
+
+    <h2>6. Data Retention &amp; Deletion</h2>
+    <p>You can delete individual highlights, comments, or entire rooms at any time from the extension's dashboard. The "Delete All Data" feature wipes both local and cloud data. Once deleted, data is permanently removed.</p>
+
+    <h2>7. Third-Party Services</h2>
+    <p>Vantage uses <strong>Google Firebase Realtime Database</strong> for cloud synchronization. Firebase is subject to <a href="https://firebase.google.com/support/privacy" target="_blank">Google's Privacy Policy</a>. No other third-party analytics, advertising, or tracking services are used.</p>
+
+    <h2>8. Permissions Explained</h2>
+    <ul>
+      <li><code>&lt;all_urls&gt;</code> — allows the extension to inject highlight overlays on any webpage you visit.</li>
+      <li><code>storage</code> — saves your highlights, room configuration, and theme preferences locally.</li>
+      <li><code>activeTab</code> — accesses the current tab to enable text highlighting.</li>
+      <li><code>tabs</code> — reads tab URLs to associate highlights with the correct page.</li>
+      <li><code>scripting</code> — programmatically injects content scripts for highlight rendering.</li>
+    </ul>
+
+    <h2>9. Changes to This Policy</h2>
+    <p>If this policy is updated, the "Last updated" date at the top will be revised. Continued use of the extension after changes constitutes acceptance.</p>
+
+    <h2>10. Contact</h2>
+    <p>For questions or concerns about this privacy policy, please open an issue on the project's GitHub repository or contact the developer directly.</p>
+  </div>
+</body>
+</html>

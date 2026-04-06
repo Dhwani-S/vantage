@@ -105,6 +105,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.close();
   });
 
+  // ── Page Note Button ────────────────────────
+  document.getElementById("btnPageNote").addEventListener("click", async () => {
+    if (!currentTab?.id) {
+      console.log("[Vantage Popup] No current tab");
+      return;
+    }
+    try {
+      console.log("[Vantage Popup] Sending add-page-note to tab:", currentTab.id);
+      const response = await chrome.tabs.sendMessage(currentTab.id, { action: "add-page-note" });
+      console.log("[Vantage Popup] Response:", response);
+    } catch (err) {
+      console.error("[Vantage Popup] Page note error:", err);
+    }
+    // Small delay before closing to ensure message is processed
+    setTimeout(() => window.close(), 100);
+  });
+
   // ── Dashboard Button ────────────────────────
   document.getElementById("btnDashboard").addEventListener("click", () => {
     chrome.runtime.sendMessage({ action: "open-dashboard" });
@@ -148,7 +165,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     chrome.storage.local.set({ firebaseUrl: fbUrl });
     chrome.runtime.sendMessage(
-      { action: "create-cloud-pack", firebaseUrl: fbUrl, name: "My Room" },
+      { action: "create-cloud-pack", firebaseUrl: fbUrl },
       (resp) => {
         btn.disabled = false;
         btn.textContent = "Create Pack";

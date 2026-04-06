@@ -1,4 +1,4 @@
-# Vantage — Shared POV
+# Vantage - Collaborative Web Highlighter
 
 **Vantage** is a Chrome extension that lets engineers annotate, highlight, and share a point-of-view overlay on any webpage. It works locally out of the box, and optionally syncs highlights in real-time across users via Firebase — no accounts, no servers to maintain.
 

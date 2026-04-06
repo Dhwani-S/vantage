@@ -3,6 +3,24 @@
    Zero-SDK real-time sync via Firebase Realtime Database
    ───────────────────────────────────────────── */
 
+/** One row per display name (latest heartbeat wins). Fixes duplicate tabs/sessions with the same anon name. */
+function dedupePresenceByDisplayName(viewers) {
+  if (!viewers || typeof viewers !== "object") return {};
+  const cutoff = Date.now() - 60000;
+  const entries = Object.entries(viewers)
+    .filter(([, info]) => info && typeof info.lastSeen === "number" && info.lastSeen > cutoff)
+    .sort((a, b) => b[1].lastSeen - a[1].lastSeen);
+  const seen = new Set();
+  const out = {};
+  for (const [id, info] of entries) {
+    const nameKey = String(info.name || "Anonymous").trim().toLowerCase();
+    if (seen.has(nameKey)) continue;
+    seen.add(nameKey);
+    out[id] = info;
+  }
+  return out;
+}
+
 // Exposed globally for content.js to consume
 // eslint-disable-next-line no-unused-vars
 class CloudSync {
@@ -76,10 +94,20 @@ class CloudSync {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(
-          { action: "get-my-name", firebaseUrl: this._firebaseUrl, packKey: this._packKey },
+          { action: "get-my-name", firebaseUrl: this._firebaseUrl, packKey: this._packKey, preferredName: this._userName },
           (resp) => {
             if (chrome.runtime.lastError) { resolve(); return; }
-            if (resp && resp.name) this._userName = resp.name;
+            if (resp && resp.name) {
+              this._userName = resp.name;
+              try {
+                chrome.storage.local.get("cloudPack", (data) => {
+                  if (data.cloudPack && data.cloudPack.packKey === this._packKey) {
+                    data.cloudPack.userName = resp.name;
+                    chrome.storage.local.set({ cloudPack: data.cloudPack });
+                  }
+                });
+              } catch {}
+            }
             resolve();
           }
         );
@@ -397,7 +425,7 @@ class CloudSync {
     }
 
     if (this._onPresenceChange) {
-      this._onPresenceChange(this._activeViewers);
+      this._onPresenceChange(dedupePresenceByDisplayName(this._activeViewers));
     }
   }
 
