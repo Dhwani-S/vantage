@@ -2,202 +2,122 @@
 
 ## Demo
 
-[![Watch the demo](https://img.youtube.com/vi/ebned4QDEWw/0.jpg)](https://youtu.be/ebned4QDEWw)
+[![Watch the demo](https://img.youtube.com/vi/ebned4QDEWw/maxresdefault.jpg)](https://youtu.be/ebned4QDEWw)
+*(Click image to watch the full Tech Stack Triage demo)*
 
 ---
 
-**Vantage** is a Chrome extension that lets engineers annotate, highlight, and share a point-of-view overlay on any webpage. It works locally out of the box, and optionally syncs highlights in real-time across users via Firebase — no accounts, no servers to maintain.
+**Vantage** is a collaborative, real-time web highlighter built as a Chrome Extension.
+
+**The Problem:** Doing technical research usually involves taking messy screenshots, copy-pasting text into separate documents, and losing all the original context of the webpage. Reading on the web is fundamentally isolated.
+**The Solution:** Vantage transforms any website into a multiplayer workspace. It lets users annotate, highlight, and share a point-of-view overlay directly on the DOM. It works locally out of the box, and optionally syncs highlights in real-time across users via an ephemeral Firebase architecture.
 
 Built with **Chrome Manifest V3**, plain JavaScript, and zero build tools.
 
 ---
 
-## Features
+## 🚀 Key Features
 
-### Annotations
-- Select text on any webpage and highlight it in **5 colors** (yellow, green, blue, pink, orange)
-- Color picker action bar appears on text selection
-- Add **notes** to any highlight via a tooltip editor
-- Keyboard shortcut: `Alt + H` to quick-highlight
-- Right-click context menu: *"Annotate with Vantage"*
-- Works on SPAs (LinkedIn, Twitter, etc.) — detects URL changes automatically
+### Context-Aware Annotations
+- **DOM-Resilient Anchoring:** Unlike standard highlighters that rely on fragile XPaths, Vantage uses a custom algorithm that allows highlights to survive page refreshes, dynamic re-renders, and layout changes.
+- Highlight text in **5 colors** via a glassmorphic color picker.
+- Add **contextual notes** to any highlight via a tooltip editor.
+- Keyboard shortcut (`Alt + H`) and Right-click context menu integration.
 
-### Role-Based Access
-- **Viewer** — read-only access to shared annotations
-- **Commentor** — can create highlights and add notes
-- **Editor** — full access including edit and delete
-- Read-only badges shown in dashboard; delete actions gated by role
+### Ephemeral Cloud Rooms (Real-Time Sync)
+- **Zero-Login Multiplayer:** Create a room and generate a secure key (e.g., `CS-A1B2-C3D4`) to invite teammates.
+- **Server-Sent Events (SSE):** Real-time sync powered by Firebase Realtime Database REST API. No bulky SDKs—just native `fetch()` and `EventSource` APIs.
+- Cloud annotations are proactively fetched on room join and automatically paint across SPA navigations.
 
-### Dashboard
-- Full-screen management view for all your annotations
-- Group by **domain** or **date**, or view all
-- **Search** across highlight text, notes, URLs, and page titles
-- Select and **bulk-delete** annotations (respects role permissions)
-- **Harvest Markdown** — export all annotations as a formatted `.md` file
-- Domain sidebar with annotation counts
-- **Clear All** button for fresh starts (wipes local data + disconnects cloud)
+### Cross-Domain Command Center
+- Full-screen dashboard to manage your cross-web research.
+- Group highlights by **domain** or **date**, and search across highlight text, notes, and URLs.
+- **Harvest Markdown:** Export all annotations as a cleanly formatted `.md` file, ready to be pasted into Jira, Notion, or GitHub PRs.
 
 ### Knowledge Packs (Offline Sharing)
-- **Export Pack** — save selected (or all) annotations as a `.cscribe` JSON file
-- **Import Pack** — load a colleague's pack file to merge their annotations with yours
-- Deduplication by highlight ID prevents duplicates on re-import
+- **Export Pack:** Save selected annotations as a `.cscribe` JSON payload.
+- **Import Pack:** Load a colleague's pack file to merge their perspective with yours (with built-in deduplication).
 
-### Cloud Rooms (Real-Time Sync)
-- **Create a Room** — generates a room key like `CS-A1B2-C3D4`
-- **Join a Room** — enter a room key to subscribe
-- Real-time sync via **Firebase Realtime Database REST API + Server-Sent Events**
-- Zero SDK — uses only native `fetch()` and `EventSource` APIs
-- Cloud annotations are proactively fetched on room join and SPA navigation
-- Deferred painting with retry for SPAs that render content asynchronously
-- Cloud annotations marked with a "shared" badge in the dashboard
-- Cloud is **opt-in** — the extension works fully offline without any Firebase config
-
-### Design
-- **Minimalist & technical** aesthetic (inspired by Linear/Vercel)
-- **Glassmorphism** — semi-transparent `backdrop-blur` overlays for tooltips and sidebars
-- Dark mode (default) and light mode
-- Monospace fonts for technical metadata; clean sans-serif for UI text
-- Lucide-style SVG icons throughout
-- Theme syncs across popup, dashboard, and in-page tooltips
+### Role-Based Permissions
+- Room owners can manage access levels: **Viewer** (read-only), **Commentor** (add notes), or **Editor** (full delete privileges).
+- Instant API key regeneration to lock down compromised rooms.
 
 ---
 
-## Installation
-
-### From Source (Developer Mode)
+## 🛠 Installation (Developer Mode)
 
 1. Clone this repository:
    ```bash
    git clone https://github.com/Dhwani-S/vantage.git
    ```
 
-2. Open Chrome and go to `chrome://extensions`
+2. Open Chrome and navigate to `chrome://extensions`
 
 3. Enable **Developer mode** (toggle in the top-right)
 
-4. Click **Load unpacked** and select the cloned `vantage` folder
-
-5. The extension icon appears in your toolbar — you're ready to go
+4. Click **Load unpacked** and select the cloned `vantage` folder.
 
 ---
 
-## Usage
+## ☁️ Cloud Rooms Setup (For Real-Time Sync)
 
-### Basic Highlighting
+Cloud Rooms are opt-in. The extension works perfectly offline, but to enable multiplayer syncing, you need a free Firebase project.
 
-1. Select text on any webpage
-2. A color picker bar appears — click a color
-3. The text is highlighted and a note tooltip opens
-4. Add an optional note, then press the checkmark or `Ctrl + Enter` to save
+1. Go to [Firebase Console](https://console.firebase.google.com) and create a project.
 
-### Keyboard Shortcut
+2. Navigate to **Realtime Database** and click **Create Database** (Start in test mode).
 
-Press `Alt + H` with text selected to instantly highlight in yellow.
+3. Set your Database Rules to public for testing:
 
-### Dashboard
+   ```json
+   {
+     "rules": {
+       ".read": true,
+       ".write": true
+     }
+   }
+   ```
 
-Click **Open Dashboard** in the popup to manage all your annotations across all pages.
+4. Copy your database URL (e.g., `https://your-project.firebaseio.com`).
 
-### Export & Import Packs
-
-1. In the Dashboard, click **Export Pack** to download a `.cscribe` file
-2. Share this file with colleagues
-3. They click **Import Pack** in their Dashboard and select the file
-4. Annotations merge automatically — no duplicates
-
----
-
-## Cloud Rooms Setup (Optional)
-
-Cloud Rooms enable real-time collaborative annotating. You need a free Firebase project.
-
-### 1. Create a Firebase Project
-
-1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Click **Add project** and follow the wizard
-3. In the sidebar, go to **Databases and storage** > **Realtime Database**
-4. Click **Create Database**, pick any region, and select **Start in test mode**
-
-### 2. Set Database Rules
-
-Go to the **Rules** tab and set:
-
-```json
-{
-  "rules": {
-    ".read": true,
-    ".write": true
-  }
-}
-```
-
-Click **Publish**. (These are open rules for development — add authentication for production use.)
-
-### 3. Connect the Extension
-
-1. Copy your database URL from the Realtime Database page (e.g. `https://your-project-default-rtdb.firebaseio.com`)
-2. Open the Vantage popup
-3. Paste the URL in the **Shared POV** section
-4. Click **Create Room** to generate a room key
-
-### 4. Invite Collaborators
-
-1. Share your room key (e.g. `CS-A1B2-C3D4`) with teammates
-2. They install the extension, paste the same Firebase URL, click **Join Room**, and enter the key
-3. Now any annotation on a matching URL syncs live across all participants
+5. Open the Vantage extension popup, paste the URL into the **Shared POV** section, and click **Create Room**. Share the generated key with your team!
 
 ---
 
-## Architecture
+## 🧠 Architecture Diagram
 
 ```
 vantage/
 ├── manifest.json          # Chrome MV3 manifest
 ├── background.js          # Service worker — message router, room CRUD, role mgmt
 ├── cloud.js               # Firebase REST + SSE client (CloudSync class)
-├── content.js             # Content script — highlighting, painting, tooltips, cloud sync
+├── content.js             # Content script — Context-Aware anchoring, painting, tooltips
 ├── content.css            # Highlight & tooltip styles (glassmorphism)
-├── popup/
-│   ├── popup.html         # Extension popup UI
-│   ├── popup.js           # Popup logic — stats, toggle, cloud room controls
-│   └── popup.css          # Popup styles
-├── dashboard/
-│   ├── dashboard.html     # Full-screen dashboard
-│   ├── dashboard.js       # Dashboard logic — grouping, search, export/import, roles
-│   └── dashboard.css      # Dashboard styles
-└── icons/                 # Extension icons (16, 48, 128px SVG-derived)
+├── popup/                 # Extension popup UI & logic
+├── dashboard/             # Full-screen Markdown Harvest & Management UI
+└── icons/                 # Extension SVG/PNG assets
 ```
 
-### How Cloud Sync Works
+### The Sync Lifecycle
 
-```
-User A annotates text
-  → content.js saves locally (chrome.storage)
-  → cloud.js PUTs to Firebase REST API
-  → Firebase streams SSE event to all subscribers
-  → User B's content.js receives the event
-  → Saves to local storage immediately
-  → Paints the highlight (with retries for SPA content)
-```
-
-- The **content script** manages the SSE connection (alive as long as the tab is open)
-- The **service worker** handles room creation/joining (ephemeral, per MV3 design)
-- **Proactive fetch** on init and SPA navigation ensures existing highlights are loaded
-- No SDK, no WebSocket library — just `fetch()` and `EventSource`
+1. **User A** highlights text → `content.js` saves locally.
+2. `cloud.js` issues a `PUT` request to the Firebase REST API.
+3. Firebase broadcasts an SSE payload to all room subscribers.
+4. **User B's** `content.js` receives the event via native `EventSource`.
+5. **User B's** DOM paints the new highlight instantly (with retry-logic for React/Vue SPAs).
 
 ---
 
-## Tech Stack
+## 💻 Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
-| Extension | Chrome Manifest V3 |
-| Language | Vanilla JavaScript (no framework, no bundler) |
+| Extension Framework | Chrome Manifest V3 |
+| Language | Vanilla JavaScript (ES6+) |
 | Storage | `chrome.storage.local` |
-| Cloud Sync | Firebase Realtime Database REST API |
-| Real-Time | Server-Sent Events (SSE) via `EventSource` |
-| Styling | CSS with custom properties, `backdrop-filter` glassmorphism |
-| Icons | Lucide-style inline SVGs |
+| Networking | Native `fetch()` & `EventSource` (SSE) |
+| Database | Firebase Realtime DB (REST via HTTP) |
+| UI/UX | Custom CSS variables, `backdrop-filter` glassmorphism, Lucide SVGs |
 
 ---
 
