@@ -82,14 +82,22 @@
 
       <!-- Disconnected state -->
       <div id="cloudDisconnected">
-        <input type="text" id="firebaseUrl" class="cloud-input" placeholder="Database URL" />
-        <div class="cloud-btn-row">
-          <button id="btnCreatePack" class="cloud-btn create">Create Room</button>
-          <button id="btnShowJoin" class="cloud-btn join">Join Room</button>
+        <!-- Join Room (primary action for most users) -->
+        <div class="cloud-join-section">
+          <input type="text" id="joinKey" class="cloud-input" placeholder="Enter room key (CS-XXXX-XXXX)" />
+          <button id="btnJoinPack" class="cloud-btn join-primary">Join Room</button>
         </div>
-        <div id="joinFields" class="join-fields hidden">
-          <input type="text" id="joinKey" class="cloud-input" placeholder="Room key (CS-XXXX-XXXX)" />
-          <button id="btnJoinPack" class="cloud-btn join">Connect</button>
+        
+        <!-- Create Room (expandable for room creators) -->
+        <div class="cloud-create-toggle">
+          <button id="btnShowCreate" class="create-toggle-btn">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            Create new room
+          </button>
+        </div>
+        <div id="createFields" class="create-fields hidden">
+          <input type="text" id="firebaseUrl" class="cloud-input" placeholder="Firebase Database URL" />
+          <button id="btnCreatePack" class="cloud-btn create">Create Room</button>
         </div>
       </div>
 

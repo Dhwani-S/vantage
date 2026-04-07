@@ -389,18 +389,70 @@ body {
   cursor: default;
 }
 
-.join-fields {
-  margin-top: 8px;
+/* Join section (primary) */
+.cloud-join-section {
   display: flex;
   gap: 6px;
+  margin-bottom: 8px;
 }
-.join-fields .cloud-input {
+.cloud-join-section .cloud-input {
   flex: 1;
   margin-bottom: 0;
 }
-.join-fields .cloud-btn {
+.cloud-btn.join-primary {
+  background: var(--v-accent);
+  color: #fff;
+  border-color: var(--v-accent);
   flex: 0;
   white-space: nowrap;
+}
+.cloud-btn.join-primary:hover {
+  background: var(--v-accent-hover);
+}
+
+/* Create toggle */
+.cloud-create-toggle {
+  text-align: center;
+}
+.create-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--v-text-muted);
+  font-size: 11px;
+  font-family: var(--v-font-sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+.create-toggle-btn:hover {
+  color: var(--v-text-secondary);
+  background: var(--v-elevated);
+}
+.create-toggle-btn svg {
+  transition: transform 0.2s ease;
+}
+.create-toggle-btn.expanded svg {
+  transform: rotate(45deg);
+}
+
+/* Create fields (expandable) */
+.create-fields {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--v-border);
+}
+.create-fields .cloud-input {
+  margin-bottom: 0;
+}
+.create-fields .cloud-btn {
+  width: 100%;
 }
 
 /* Connected state */

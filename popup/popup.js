@@ -132,7 +132,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const cloudDisconnected = document.getElementById("cloudDisconnected");
   const cloudConnected = document.getElementById("cloudConnected");
   const firebaseUrlInput = document.getElementById("firebaseUrl");
-  const joinFields = document.getElementById("joinFields");
+  const createFields = document.getElementById("createFields");
+  const btnShowCreate = document.getElementById("btnShowCreate");
 
   // Load persisted Firebase URL
   chrome.storage.local.get("firebaseUrl", ({ firebaseUrl }) => {
@@ -153,6 +154,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     loadRoomHistory(status);
   });
 
+  // Toggle create fields
+  btnShowCreate.addEventListener("click", () => {
+    createFields.classList.toggle("hidden");
+    btnShowCreate.classList.toggle("expanded");
+    if (!createFields.classList.contains("hidden")) {
+      firebaseUrlInput.focus();
+    }
+  });
+
   // Create Pack
   document.getElementById("btnCreatePack").addEventListener("click", () => {
     const fbUrl = firebaseUrlInput.value.trim();
@@ -168,7 +178,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       { action: "create-cloud-pack", firebaseUrl: fbUrl },
       (resp) => {
         btn.disabled = false;
-        btn.textContent = "Create Pack";
+        btn.textContent = "Create Room";
         if (resp?.error) {
           showCloudError(resp.error);
         } else if (resp?.config) {
@@ -178,39 +188,55 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
   });
 
-  // Show/hide join fields
-  document.getElementById("btnShowJoin").addEventListener("click", () => {
-    joinFields.classList.toggle("hidden");
-    if (!joinFields.classList.contains("hidden")) {
-      document.getElementById("joinKey").focus();
-    }
-  });
-
-  // Join Pack
+  // Join Pack - first check room history for the Firebase URL
   document.getElementById("btnJoinPack").addEventListener("click", () => {
-    const fbUrl = firebaseUrlInput.value.trim();
     const key = document.getElementById("joinKey").value.trim().toUpperCase();
-    if (!fbUrl) { firebaseUrlInput.focus(); firebaseUrlInput.classList.add("error"); return; }
     if (!key) { document.getElementById("joinKey").focus(); return; }
-    firebaseUrlInput.classList.remove("error");
 
     const btn = document.getElementById("btnJoinPack");
     btn.disabled = true;
-    btn.textContent = "Connecting…";
+    btn.textContent = "Joining…";
 
-    chrome.storage.local.set({ firebaseUrl: fbUrl });
-    chrome.runtime.sendMessage(
-      { action: "join-cloud-pack", firebaseUrl: fbUrl, packKey: key },
-      (resp) => {
-        btn.disabled = false;
-        btn.textContent = "Connect";
-        if (resp?.error) {
-          showCloudError(resp.error);
-        } else if (resp?.config) {
-          showConnectedUI(resp.config);
-        }
+    // First check room history for this key's Firebase URL
+    chrome.runtime.sendMessage({ action: "get-room-history" }, (history) => {
+      const knownRoom = (history || []).find(r => r.packKey === key);
+      
+      if (knownRoom) {
+        // Found in history - use stored Firebase URL
+        chrome.runtime.sendMessage(
+          { action: "join-cloud-pack", firebaseUrl: knownRoom.firebaseUrl, packKey: key },
+          handleJoinResponse
+        );
+      } else {
+        // Not in history - check if user has a Firebase URL saved, or show create section
+        chrome.storage.local.get("firebaseUrl", ({ firebaseUrl }) => {
+          if (firebaseUrl) {
+            chrome.runtime.sendMessage(
+              { action: "join-cloud-pack", firebaseUrl, packKey: key },
+              handleJoinResponse
+            );
+          } else {
+            // No Firebase URL - show the create section so user can enter one
+            btn.disabled = false;
+            btn.textContent = "Join Room";
+            createFields.classList.remove("hidden");
+            btnShowCreate.classList.add("expanded");
+            showCloudError("Enter the Database URL to join this room");
+            firebaseUrlInput.focus();
+          }
+        });
       }
-    );
+    });
+
+    function handleJoinResponse(resp) {
+      btn.disabled = false;
+      btn.textContent = "Join Room";
+      if (resp?.error) {
+        showCloudError(resp.error);
+      } else if (resp?.config) {
+        showConnectedUI(resp.config);
+      }
+    }
   });
 
   // Leave Pack
