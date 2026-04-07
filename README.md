@@ -4,6 +4,7 @@
 
 [![Watch the demo](https://img.youtube.com/vi/ebned4QDEWw/maxresdefault.jpg)](https://youtu.be/ebned4QDEWw)
 *(Click image to watch the full Tech Stack Triage demo)*
+> 💡 **Recommended:** Turn on captions/CC for the best viewing experience.
 
 ---
 
