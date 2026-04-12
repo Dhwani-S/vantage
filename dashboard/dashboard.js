@@ -373,6 +373,44 @@
       URL.revokeObjectURL(a.href);
       toast("Downloaded!");
     });
+
+    // Refine harvest
+    document.getElementById("mdRefine").addEventListener("click", refineHarvest);
+
+    // Refine modal controls
+    document.getElementById("refineClose").addEventListener("click", () => {
+      document.getElementById("refineModal").classList.remove("visible");
+    });
+    document.getElementById("refineModal").addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) e.currentTarget.classList.remove("visible");
+    });
+    document.getElementById("refineCopy").addEventListener("click", () => {
+      navigator.clipboard.writeText(_lastRefinedMd);
+      toast("Copied to clipboard!");
+    });
+    document.getElementById("refineDownload").addEventListener("click", () => {
+      const blob = new Blob([_lastRefinedMd], { type: "text/markdown" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `vantage-refined-${new Date().toISOString().slice(0,10)}.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast("Downloaded!");
+    });
+    document.getElementById("refineToggleRaw").addEventListener("click", () => {
+      const content = document.getElementById("refineContent");
+      const raw = document.getElementById("refineOutput");
+      const btn = document.getElementById("refineToggleRaw");
+      if (raw.classList.contains("hidden")) {
+        raw.classList.remove("hidden");
+        content.style.display = "none";
+        btn.textContent = "Show Rendered";
+      } else {
+        raw.classList.add("hidden");
+        content.style.display = "";
+        btn.textContent = "Show Raw";
+      }
+    });
   }
 
   /* ════════════════════════════════════════════
@@ -925,6 +963,164 @@
 
     document.getElementById("mdOutput").value = md;
     document.getElementById("mdModal").classList.add("visible");
+  }
+
+  /* ════════════════════════════════════════════
+     GEMINI REFINE
+     ════════════════════════════════════════════ */
+  let _lastRefinedMd = "";
+
+  async function loadEnvKey() {
+    try {
+      const resp = await fetch(chrome.runtime.getURL(".env"));
+      if (!resp.ok) return "";
+      const text = await resp.text();
+      const match = text.match(/^GEMINI_API_KEY=(.+)$/m);
+      return match ? match[1].trim() : "";
+    } catch { return ""; }
+  }
+
+  async function refineHarvest() {
+    // Get the API key from .env
+    const geminiApiKey = await loadEnvKey();
+    if (!geminiApiKey) {
+      toast("Add your Gemini API key in the .env file!");
+      return;
+    }
+
+    const flat = getFlatHighlights();
+    if (flat.length === 0) { toast("No highlights to refine!"); return; }
+
+    // Close harvest modal, open refine modal
+    document.getElementById("mdModal").classList.remove("visible");
+    document.getElementById("refineModal").classList.add("visible");
+    document.getElementById("refineLoading").classList.remove("hidden");
+    document.getElementById("refineContent").innerHTML = "";
+    document.getElementById("refineContent").style.display = "";
+    document.getElementById("refineOutput").classList.add("hidden");
+    document.getElementById("refineOutput").value = "";
+    document.getElementById("refineToggleRaw").textContent = "Show Raw";
+    _lastRefinedMd = "";
+
+    // Build the source material for the prompt
+    const grouped = groupByDomain(flat);
+    let sourceText = "";
+    const allReferences = []; // { title, url }
+
+    for (const [domain, items] of Object.entries(grouped)) {
+      const byPage = {};
+      for (const h of items) {
+        const key = h.title || h.url;
+        if (!byPage[key]) byPage[key] = { url: h.url, items: [] };
+        byPage[key].items.push(h);
+      }
+      for (const [pageTitle, { url, items: pageItems }] of Object.entries(byPage)) {
+        allReferences.push({ title: pageTitle, url });
+        sourceText += `\n## Source: ${pageTitle} (${url})\n`;
+        for (const h of pageItems) {
+          sourceText += `- Highlight: "${h.text}"\n`;
+          const hComments = getComments(h);
+          for (const c of hComments) {
+            sourceText += `  - Comment by ${c.author || "Anonymous"}: "${c.text}"\n`;
+          }
+        }
+      }
+    }
+
+    const prompt = `You are a technical writer. I have the following highlighted notes and annotations collected from web pages. Please refine and organize them into a well-structured, concise summary in markdown format.
+
+Requirements:
+- Create a pointwise summary organized by topic/theme (not necessarily by source page)
+- Each key point should be a bullet point, refined in your own words
+- Use clear headings and subheadings
+- Be concise but preserve all important information and technical details
+- At the end, include a "## References" section listing all the original source pages as numbered references in the format: [n] [Title](URL)
+- When a point is derived from a specific source, add a small superscript-style reference like [1], [2] etc. at the end of that point
+- Do NOT copy text verbatim; rephrase everything
+- Output only the markdown, nothing else
+
+Here are the harvested notes:
+${sourceText}`;
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.4,
+              maxOutputTokens: 8192,
+            }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`API error ${response.status}: ${errBody}`);
+      }
+
+      const data = await response.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error("No content returned from Gemini");
+
+      _lastRefinedMd = text;
+      document.getElementById("refineOutput").value = text;
+      document.getElementById("refineContent").innerHTML = renderMarkdownToHtml(text);
+    } catch (err) {
+      console.error("[Vantage] Refine error:", err);
+      document.getElementById("refineContent").innerHTML =
+        `<div class="refine-error">
+          <strong>Refine failed:</strong> ${escapeHTML(err.message)}
+          <br><br>Check that your Gemini API key is valid in the .env file.
+        </div>`;
+    } finally {
+      document.getElementById("refineLoading").classList.add("hidden");
+    }
+  }
+
+  /** Simple markdown to HTML renderer for the refined output */
+  function renderMarkdownToHtml(md) {
+    let html = md
+      // Code blocks
+      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+      // Headings
+      .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+      // Horizontal rules
+      .replace(/^---+$/gm, '<hr>')
+      // Bold and italic
+      .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      // Inline code
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      // Links
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      // Blockquotes
+      .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+      // Unordered lists
+      .replace(/^[\-\*] (.+)$/gm, '<li>$1</li>')
+      // Ordered lists
+      .replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+    // Wrap consecutive <li> in <ul>
+    html = html.replace(/(<li>[\s\S]*?<\/li>)(\s*<li>)/g, '$1$2');
+    html = html.replace(/(?<!<\/ul>\s*)(<li>)/g, '<ul>$1');
+    html = html.replace(/(<\/li>)(?!\s*<li>)/g, '$1</ul>');
+
+    // Paragraphs: wrap remaining text lines
+    html = html.replace(/^(?!<[hupbloar]|<\/|<hr|<li|<ul|<code|<pre|<strong|<em)(.+)$/gm, '<p>$1</p>');
+
+    // Clean up double-wrapped blockquotes
+    html = html.replace(/<\/blockquote>\s*<blockquote>/g, '<br>');
+
+    return html;
   }
 
   /* ════════════════════════════════════════════

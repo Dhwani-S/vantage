@@ -17,3 +17,7 @@ desktop.ini
 
 # Cursor
 .cursor/
+
+# Secrets
+config.js
+.env

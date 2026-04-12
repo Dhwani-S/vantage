@@ -1469,6 +1469,119 @@ kbd {
   border-color: var(--border-hover);
   color: var(--text-primary);
 }
+.modal-btn.refine {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #fff;
+}
+.modal-btn.refine:hover {
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+}
+
+/* ═══════════ REFINE MODAL ═══════════ */
+.modal.modal-wide {
+  width: 850px;
+  max-height: 85vh;
+}
+.refine-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 48px 0;
+}
+.refine-loading.hidden { display: none; }
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.refine-loading p {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.refine-content {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.refine-content h1 {
+  font-size: 20px;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+.refine-content h2 {
+  font-size: 16px;
+  margin: 16px 0 8px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.refine-content h3 {
+  font-size: 14px;
+  margin: 12px 0 6px;
+  font-weight: 600;
+}
+.refine-content ul, .refine-content ol {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+.refine-content li {
+  margin-bottom: 4px;
+}
+.refine-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 4px 12px;
+  margin: 8px 0;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 0 6px 6px 0;
+}
+.refine-content a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.refine-content a:hover { text-decoration: underline; }
+.refine-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+.refine-content code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.refine-error {
+  color: var(--danger);
+  background: var(--danger-subtle);
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+#refineOutput {
+  width: 100%;
+  height: 400px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+}
+#refineOutput.hidden { display: none; }
 
 /* ═══════════ TOAST ═══════════ */
 .toast {

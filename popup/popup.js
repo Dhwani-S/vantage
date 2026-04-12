@@ -129,6 +129,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // ── Cloud Pack ─────────────────────────────
+  async function loadEnvVar(name) {
+    try {
+      const resp = await fetch(chrome.runtime.getURL(".env"));
+      if (!resp.ok) return "";
+      const text = await resp.text();
+      const match = text.match(new RegExp(`^${name}=(.+)$`, "m"));
+      return match ? match[1].trim() : "";
+    } catch { return ""; }
+  }
+
+  const DEFAULT_FIREBASE_URL = await loadEnvVar("DEFAULT_FIREBASE_URL") || "https://vantage-4a45e-default-rtdb.firebaseio.com/";
   const cloudDisconnected = document.getElementById("cloudDisconnected");
   const cloudConnected = document.getElementById("cloudConnected");
   const firebaseUrlInput = document.getElementById("firebaseUrl");
@@ -165,8 +176,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Create Pack
   document.getElementById("btnCreatePack").addEventListener("click", () => {
-    const fbUrl = firebaseUrlInput.value.trim();
-    if (!fbUrl) { firebaseUrlInput.focus(); firebaseUrlInput.classList.add("error"); return; }
+    const fbUrl = firebaseUrlInput.value.trim() || DEFAULT_FIREBASE_URL;
     firebaseUrlInput.classList.remove("error");
 
     const btn = document.getElementById("btnCreatePack");
@@ -208,22 +218,13 @@ document.addEventListener("DOMContentLoaded", async () => {
           handleJoinResponse
         );
       } else {
-        // Not in history - check if user has a Firebase URL saved, or show create section
+        // Not in history - use saved Firebase URL or default
         chrome.storage.local.get("firebaseUrl", ({ firebaseUrl }) => {
-          if (firebaseUrl) {
-            chrome.runtime.sendMessage(
-              { action: "join-cloud-pack", firebaseUrl, packKey: key },
-              handleJoinResponse
-            );
-          } else {
-            // No Firebase URL - show the create section so user can enter one
-            btn.disabled = false;
-            btn.textContent = "Join Room";
-            createFields.classList.remove("hidden");
-            btnShowCreate.classList.add("expanded");
-            showCloudError("Enter the Database URL to join this room");
-            firebaseUrlInput.focus();
-          }
+          const fbUrl = firebaseUrl || DEFAULT_FIREBASE_URL;
+          chrome.runtime.sendMessage(
+            { action: "join-cloud-pack", firebaseUrl: fbUrl, packKey: key },
+            handleJoinResponse
+          );
         });
       }
     });
@@ -476,4 +477,5 @@ document.addEventListener("DOMContentLoaded", async () => {
     const days = Math.floor(hrs / 24);
     return `${days}d ago`;
   }
+
 });

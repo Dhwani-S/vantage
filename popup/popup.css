@@ -731,6 +731,8 @@ body {
 }
 
 /* Viewer name chips */
+
+
 .viewer-names {
   display: flex;
   flex-wrap: wrap;
