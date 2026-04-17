@@ -12,6 +12,9 @@
 
 > 💡 **Recommended:** Turn on captions/CC for the best viewing experience.
 
+### 📝 Blog Post
+Read the full write-up on Medium: [Stop Your Team's Research Notes From Looking Like a Collective Ransom Letter](https://medium.com/@dhwani.suthar26/stop-your-teams-research-notes-from-looking-like-a-collective-ransom-letter-%EF%B8%8F-%EF%B8%8F-62e97d36cb6f)
+
 ---
 
 **Vantage** is a collaborative, real-time web highlighter built as a Chrome Extension.
