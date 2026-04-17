@@ -2,8 +2,14 @@
 
 ## Demo
 
+### 🤖 AI Refine — Harvest with Intelligence
+[![Watch the Refine demo](https://img.youtube.com/vi/f8K_pBb26cc/maxresdefault.jpg)](https://youtu.be/f8K_pBb26cc)
+*(Click image to watch the AI Refine feature demo)*
+
+### 📌 Full Extension Walkthrough
 [![Watch the demo](https://img.youtube.com/vi/ebned4QDEWw/maxresdefault.jpg)](https://youtu.be/ebned4QDEWw)
 *(Click image to watch the full Tech Stack Triage demo)*
+
 > 💡 **Recommended:** Turn on captions/CC for the best viewing experience.
 
 ---
@@ -34,6 +40,10 @@ Built with **Chrome Manifest V3**, plain JavaScript, and zero build tools.
 - Full-screen dashboard to manage your cross-web research.
 - Group highlights by **domain** or **date**, and search across highlight text, notes, and URLs.
 - **Harvest Markdown:** Export all annotations as a cleanly formatted `.md` file, ready to be pasted into Jira, Notion, or GitHub PRs.
+
+### AI Refine (Harvest with AI)
+- **Refine:** Use AI to intelligently process and refine your harvested annotations into structured, actionable insights.
+- Powered by Gemini — transforms raw highlights and notes into polished summaries, action items, or research briefs.
 
 ### Knowledge Packs (Offline Sharing)
 - **Export Pack:** Save selected annotations as a `.cscribe` JSON payload.
