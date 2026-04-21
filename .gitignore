@@ -21,3 +21,9 @@ desktop.ini
 # Secrets
 config.js
 .env
+
+# Python
+agent/venv/
+agent/logs/*.log
+__pycache__/
+*.pyc

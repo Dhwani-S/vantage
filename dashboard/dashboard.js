@@ -1084,6 +1084,24 @@ ${sourceText}`;
 
   /** Simple markdown to HTML renderer for the refined output */
   function renderMarkdownToHtml(md) {
+    // Handle tables first (before other replacements)
+    md = md.replace(/(?:^|\n)((?:\|.+\|[ \t]*\n)+)/g, (match, tableBlock) => {
+      const rows = tableBlock.trim().split("\n").filter(r => r.trim());
+      if (rows.length < 2) return match;
+      // Skip separator row (|---|---|)
+      const isSeperator = (r) => /^\|[\s\-:|]+\|$/.test(r.trim());
+      let html = "<table>";
+      let isHeader = true;
+      for (const row of rows) {
+        if (isSeperator(row)) { isHeader = false; continue; }
+        const cells = row.split("|").slice(1, -1).map(c => c.trim());
+        const tag = isHeader ? "th" : "td";
+        html += "<tr>" + cells.map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+        if (isHeader) isHeader = false;
+      }
+      return html + "</table>";
+    });
+
     let html = md
       // Code blocks
       .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
@@ -1800,6 +1818,132 @@ ${sourceText}`;
     el.textContent = message;
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 2500);
+  }
+
+  /* ═══════════ DEEP RESEARCH AGENT ═══════════ */
+
+  const researchModal   = document.getElementById("researchModal");
+  const researchClose   = document.getElementById("researchClose");
+  const researchInput   = document.getElementById("researchInput");
+  const researchSubmit  = document.getElementById("researchSubmit");
+  const researchChain   = document.getElementById("researchChain");
+  const researchAnswer  = document.getElementById("researchAnswer");
+
+  document.getElementById("btnDeepResearch").addEventListener("click", () => {
+    researchModal.classList.add("visible");
+    researchInput.focus();
+  });
+  researchClose.addEventListener("click", () => researchModal.classList.remove("visible"));
+  researchModal.addEventListener("click", (e) => {
+    if (e.target === researchModal) researchModal.classList.remove("visible");
+  });
+  researchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startResearch(); }
+  });
+  researchSubmit.addEventListener("click", startResearch);
+
+  function addChainStep(type, label, detail) {
+    const icons = { thinking: "💭", "tool-call": "🔧", "tool-result": "📦", error: "❌" };
+    const step = document.createElement("div");
+    step.className = `chain-step ${type}`;
+    step.innerHTML = `
+      <span class="chain-icon">${icons[type] || "•"}</span>
+      <div class="chain-body">
+        <div class="chain-label">${escapeHTML(label)}</div>
+        ${detail ? `<div class="chain-detail">${escapeHTML(detail)}</div>` : ""}
+      </div>`;
+    if (detail) {
+      step.style.cursor = "pointer";
+      step.addEventListener("click", () => step.classList.toggle("expanded"));
+    }
+    researchChain.appendChild(step);
+    // Update count badge
+    const count = researchChain.querySelectorAll(".chain-step").length;
+    document.getElementById("chainCount").textContent = `(${count} steps)`;
+    // Scroll the single scroll container
+    const scrollEl = document.querySelector(".research-scroll");
+    if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+    return step;
+  }
+
+  async function startResearch() {
+    const query = researchInput.value.trim();
+    if (!query) return;
+
+    researchChain.innerHTML = "";
+    researchAnswer.innerHTML = "";
+    researchAnswer.classList.remove("visible");
+    document.getElementById("researchChainWrap").setAttribute("open", "");
+    document.getElementById("chainCount").textContent = "";
+    researchSubmit.disabled = true;
+    researchSubmit.textContent = "Researching...";
+
+    addChainStep("thinking", `Query: ${query}`);
+
+    try {
+      const response = await fetch("http://127.0.0.1:5000/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Server error ${response.status}: ${errBody}`);
+      }
+
+      const text = await response.text();
+      for (const chunk of text.split("\n\n")) {
+        if (chunk.startsWith("data: ")) {
+          try {
+            handleResearchEvent(JSON.parse(chunk.slice(6)));
+          } catch (_) {}
+        }
+      }
+    } catch (err) {
+      console.error("[Agent] Error:", err);
+      addChainStep("error", "Connection failed", err.message + "\n\nMake sure the agent server is running:\ncd agent && venv\\Scripts\\python.exe server.py");
+    } finally {
+      researchSubmit.disabled = false;
+      researchSubmit.textContent = "Research";
+    }
+  }
+
+  function handleResearchEvent(event) {
+    switch (event.type) {
+      case "thinking":
+        addChainStep("thinking", `Step ${event.step}: Thinking...`);
+        break;
+      case "tool_call":
+        addChainStep("tool-call", `Tool: ${event.tool}`, JSON.stringify(event.arguments, null, 2));
+        break;
+      case "tool_result":
+        const preview = typeof event.output === "string" 
+          ? event.output.slice(0, 300) + (event.output.length > 300 ? "..." : "")
+          : JSON.stringify(event.output, null, 2).slice(0, 300);
+        addChainStep("tool-result", `Result from ${event.tool}`, preview);
+        break;
+      case "answer":
+        researchAnswer.innerHTML = renderMarkdownToHtml(event.content);
+        researchAnswer.classList.add("visible");
+        addChainStep("thinking", "✅ Research complete");
+        // Auto-collapse the chain so the answer gets focus
+        document.getElementById("researchChainWrap").removeAttribute("open");
+        researchSubmit.disabled = false;
+        researchSubmit.textContent = "Research";
+        break;
+      case "error":
+        addChainStep("error", "Error", event.content);
+        researchSubmit.disabled = false;
+        researchSubmit.textContent = "Research";
+        break;
+    }
+  }
+
+  function renderMarkdown(text) {
+    if (!text) return "";
+    // Use the full renderer, same as Refine
+    return renderMarkdownToHtml(text);
   }
 
 })();
