@@ -48,6 +48,13 @@ Built with **Chrome Manifest V3**, plain JavaScript, and zero build tools.
 - **Refine:** Use AI to intelligently process and refine your harvested annotations into structured, actionable insights.
 - Powered by Gemini — transforms raw highlights and notes into polished summaries, action items, or research briefs.
 
+### 🔬 Deep Research Agent
+- **Multi-source research at a click:** Ask any research question from the dashboard and get a comprehensive, synthesized answer.
+- **Agentic tool use:** A Python-based LLM agent (Gemini) autonomously searches Wikipedia, Hacker News, GitHub, and OpenAlex for academic papers — deciding which tools to call and when.
+- **Live agent trace:** Watch the agent's reasoning chain in real-time — each thinking step, tool call, and result is streamed to a collapsible trace panel.
+- **Rendered markdown output:** The final answer renders with full markdown support including tables, headings, lists, code blocks, and links.
+- **File-based logging:** Every research session is logged to `agent/logs/` for debugging and reproducibility.
+
 ### Knowledge Packs (Offline Sharing)
 - **Export Pack:** Save selected annotations as a `.cscribe` JSON payload.
 - **Import Pack:** Load a colleague's pack file to merge their perspective with yours (with built-in deduplication).
@@ -70,6 +77,34 @@ Built with **Chrome Manifest V3**, plain JavaScript, and zero build tools.
 3. Enable **Developer mode** (toggle in the top-right)
 
 4. Click **Load unpacked** and select the cloned `vantage` folder.
+
+---
+
+## 🔬 Deep Research Agent Setup
+
+The Deep Research feature requires a local Python server.
+
+1. Create a `.env` file in the project root with your Gemini API key:
+   ```
+   GEMINI_API_KEY=your_key_here
+   ```
+
+2. Set up the Python environment:
+   ```bash
+   cd agent
+   python -m venv venv
+   venv\Scripts\activate      # Windows
+   # source venv/bin/activate  # macOS/Linux
+   pip install -r requirements.txt
+   ```
+
+3. Start the agent server:
+   ```bash
+   python server.py
+   ```
+   The server runs on `http://127.0.0.1:5000`. Logs are written to `agent/logs/`.
+
+4. Open the Vantage dashboard and click **Deep Research** in the sidebar.
 
 ---
 
@@ -109,7 +144,12 @@ vantage/
 ├── content.css            # Highlight & tooltip styles (glassmorphism)
 ├── popup/                 # Extension popup UI & logic
 ├── dashboard/             # Full-screen Markdown Harvest & Management UI
-└── icons/                 # Extension SVG/PNG assets
+├── icons/                 # Extension SVG/PNG assets
+└── agent/                 # Deep Research Agent
+    ├── agent.py           # LLM agent loop with 4 research tools
+    ├── server.py          # Flask SSE server bridging dashboard → agent
+    ├── requirements.txt   # Python dependencies
+    └── logs/              # Auto-generated research session logs
 ```
 
 ### The Sync Lifecycle
@@ -132,6 +172,8 @@ vantage/
 | Networking | Native `fetch()` & `EventSource` (SSE) |
 | Database | Firebase Realtime DB (REST via HTTP) |
 | UI/UX | Custom CSS variables, `backdrop-filter` glassmorphism, Lucide SVGs |
+| AI / LLM | Gemini (`gemini-3.1-flash-lite-preview`) via `google-genai` SDK |
+| Research Agent | Python 3.11+, Flask (SSE streaming), 4 tool integrations |
 
 ---
 
