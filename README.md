@@ -6,6 +6,13 @@
 [![Watch the Refine demo](https://img.youtube.com/vi/f8K_pBb26cc/maxresdefault.jpg)](https://youtu.be/f8K_pBb26cc)
 *(Click image to watch the AI Refine feature demo)*
 
+### 🧠 Deep Research — AI-Powered Architectural Decisions
+[![Watch the Deep Research demo](https://img.youtube.com/vi/moay6BzZfxU/maxresdefault.jpg)](https://youtu.be/moay6BzZfxU)
+*(Click image to watch the Deep Research feature demo)*
+
+> ✨ **Refine** cleans up scattered highlights and comments, giving you a synthesized, paraphrased version of your findings.
+> 🧠 **Deep Research** is an autonomous agent that takes the context of your highlights and searches Wikipedia, dev communities, and research papers to help you make Staff-level architectural decisions. Open the Agent Trace to watch it call tools and pull live data in real-time!
+
 ### 📌 Full Extension Walkthrough
 [![Watch the demo](https://img.youtube.com/vi/ebned4QDEWw/maxresdefault.jpg)](https://youtu.be/ebned4QDEWw)
 *(Click image to watch the full Tech Stack Triage demo)*
