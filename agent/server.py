@@ -1,7 +1,9 @@
 import json
 import sys
 from flask import Flask, request, Response
-from agent import initialize_config, initialize_genai_client, tool_registry, agent_loop_stream, log
+from agent import initialize_config, initialize_genai_client, agent_loop_stream
+from tools import tool_registry
+from logger import log, LOG_FILE
 
 app = Flask(__name__)
 
@@ -62,7 +64,6 @@ def health():
 
 
 if __name__ == "__main__":
-    from agent import LOG_FILE
     print(f"Agent server running with {len(tool_registry)} tools: {[t.name for t in tool_registry]}", flush=True)
     print(f"Logs writing to: {LOG_FILE}", flush=True)
     app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)

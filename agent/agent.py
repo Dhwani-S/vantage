@@ -1,106 +1,17 @@
 import json
 import time
 import os
-import requests
 import re
 from google import genai
-from dataclasses import dataclass
 from dotenv import load_dotenv
+
+from logger import log
+from models import Conversation, ToolDefinition, ToolCall, AgentResponse
+from tools import tool_registry
+from convergence import InformationGainTracker, CONVERGENCE_NUDGE
 
 load_dotenv()
 
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning, module="wikipedia")
-
-# File-based logging: write to agent/logs/
-LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
-os.makedirs(LOG_DIR, exist_ok=True)
-LOG_FILE = os.path.join(LOG_DIR, f"agent_{time.strftime('%Y%m%d_%H%M%S')}.log")
-_log_file_handle = None
-
-def _get_log_file():
-    global _log_file_handle
-    if _log_file_handle is None:
-        _log_file_handle = open(LOG_FILE, "a", encoding="utf-8")
-    return _log_file_handle
-
-def _write_log(line: str):
-    f = _get_log_file()
-    f.write(line + "\n")
-    f.flush()
-
-def log(label: str, message: str = "", data: dict = None):
-    timestamp = time.strftime("%H:%M:%S")
-
-    def out(text=""):
-        print(text)
-        _write_log(text)
-
-    # If message looks like JSON, pretty-print it
-    if isinstance(message, str):
-        stripped = message.strip()
-        if stripped.startswith(("{", "[")):
-            try:
-                parsed = json.loads(stripped)
-                message = json.dumps(parsed, indent=2)
-            except (json.JSONDecodeError, ValueError):
-                pass
-
-    # Visual separators for key moments
-    if label == "USER":
-        out(f"\n{'='*60}")
-        out(f"  [{timestamp}] USER QUERY")
-        out(f"  {message}")
-        out(f"{'='*60}")
-    elif label == "SYSTEM":
-        out(f"\n{'-'*60}")
-        out(f"  [{timestamp}] SYSTEM PROMPT")
-        for line in message.split('\n'):
-            out(f"  {line}")
-        out(f"{'-'*60}")
-    elif label == "ANSWER":
-        out(f"\n{'='*60}")
-        out(f"  [{timestamp}] FINAL ANSWER")
-        out(f"{'='*60}")
-        out(message)
-        out(f"{'='*60}\n")
-    elif label == "TOOL":
-        args_str = ", ".join(f"{k}={v}" for k, v in (data or {}).items())
-        out(f"  [{timestamp}] TOOL >> {message} ({args_str})")
-        return
-    elif label == "TOOL_RESULT":
-        output = (data or {}).get("output", "")
-        # Full output goes to file, truncated to terminal
-        _write_log(f"  [{timestamp}] TOOL << {message}")
-        _write_log(output)
-        _write_log("")
-        if len(output) > 400:
-            output = output[:400] + "... [truncated]"
-        print(f"  [{timestamp}] TOOL << {message}")
-        for line in output.split('\n'):
-            print(f"           {line}")
-        print()
-        return
-    elif label == "ERROR":
-        out(f"  [{timestamp}] !! {message}")
-    elif label == "WARN":
-        out(f"  [{timestamp}] ?? {message}")
-    elif label == "INFO":
-        out(f"  [{timestamp}] .. {message}")
-    else:
-        out(f"  [{timestamp}] [{label}] {message}")
-
-    if data and label not in ("TOOL", "TOOL_RESULT"):
-        for key, value in data.items():
-            if isinstance(value, str):
-                sv = value.strip()
-                if sv.startswith(("{", "[")):
-                    try:
-                        value = json.dumps(json.loads(sv), indent=2)
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-            out(f"           | {key}: {value}")
-    out()
 
 def initialize_config() -> dict:
     config = {
@@ -112,185 +23,10 @@ def initialize_config() -> dict:
         raise ValueError("GEMINI_API_KEY is not set in the environment variables.")
     return config
 
+
 def initialize_genai_client(config: dict) -> genai.Client:
-    GEMINI_API_KEY = config["GEMINI_API_KEY"]
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    return client
+    return genai.Client(api_key=config["GEMINI_API_KEY"])
 
-@dataclass
-class Message:
-    role: str
-    content: str
-
-@dataclass
-class Conversation:
-    messages: list[Message]
-
-    def add(self, role: str, content: str):
-        self.messages.append(Message(role=role, content=content))
-
-    def to_prompt(self) -> list[dict]:
-        return [{"role": msg.role, "content": msg.content} for msg in self.messages]
-    
-@dataclass
-class ToolDefinition:
-    name: str
-    description: str
-    parameters: dict
-    function: callable
-
-@dataclass
-class ToolCall:
-    name: str
-    arguments: dict
-
-@dataclass
-class ToolResult:
-    tool_name: str
-    output: str
-    error: str | None = None
-
-@dataclass
-class AgentResponse:
-    content: str | None
-    tool_call: ToolCall | None
-
-    @property
-    def is_final(self) -> bool:
-        return self.tool_call is None
-
-tool_registry: list[ToolDefinition] = []
-def tool(name: str, description: str, parameters: dict):
-    def decorator(func):
-        tool_registry.append(ToolDefinition(
-            name=name, 
-            description=description, 
-            parameters=parameters, 
-            function=func))
-        return func
-    return decorator
-
-@tool(
-    name="search_wikipedia",
-    description="Fetches official background context from Wikipedia for a given topic.",
-    parameters={"topic": {"type": "string", "description": "The topic to search on Wikipedia"}}
-)
-def search_wikipedia(topic: str) -> str:
-    """Fetches official background context from Wikipedia."""
-    import wikipedia
-    try:
-        results = wikipedia.search(topic, results=3)
-        if not results:
-            return f"No Wikipedia articles found for '{topic}'."
-        
-        summaries = []
-        for title in results:
-            try:
-                page = wikipedia.page(title, auto_suggest=False)
-                summary = page.summary[:300] + "..." if len(page.summary) > 300 else page.summary
-                summaries.append(f"**{page.title}**: {summary}")
-            except (wikipedia.DisambiguationError, wikipedia.PageError):
-                continue
-        
-        return "\n\n".join(summaries) if summaries else f"No summaries found for '{topic}'."
-    except Exception as e:
-        return f"Error fetching Wikipedia data: {str(e)}"
-
-
-@tool(
-    name="search_hacker_news",
-    description="Searches Hacker News for developer discussions, sentiment, and community opinions on a topic.",
-    parameters={"query": {"type": "string", "description": "The search query to find discussions on Hacker News"}}
-)
-def search_hacker_news(query: str) -> str:
-    """Searches Hacker News for developer sentiment."""
-    try:
-        res = requests.get(
-            "https://hn.algolia.com/api/v1/search",
-            params={"query": query, "hitsPerPage": 5, "tags": "story"}
-        )
-        if res.status_code != 200:
-            return "Error from Hacker News API."
-        
-        hits = res.json().get("hits", [])
-        if not hits:
-            return f"No Hacker News discussions found for '{query}'."
-        
-        results = []
-        for h in hits:
-            title = h.get("title", "Untitled")
-            points = h.get("points", 0)
-            comments = h.get("num_comments", 0)
-            url = h.get("url", "")
-            results.append(f"- {title} ({points} points, {comments} comments) {url}")
-        
-        return "\n".join(results)
-    except Exception as e:
-        return f"Error searching Hacker News: {str(e)}"
-
-
-@tool(
-    name="search_github_repos",
-    description="Searches GitHub for popular open-source repositories related to a topic, sorted by stars.",
-    parameters={"topic": {"type": "string", "description": "The topic to search GitHub repositories for"}}
-)
-def search_github_repos(topic: str) -> str:
-    """Searches GitHub for open-source popularity."""
-    try:
-        res = requests.get(
-            "https://api.github.com/search/repositories",
-            params={"q": topic, "sort": "stars", "order": "desc", "per_page": 5}
-        )
-        if res.status_code != 200:
-            return "Error from GitHub API."
-        
-        items = res.json().get("items", [])
-        if not items:
-            return f"No GitHub repositories found for '{topic}'."
-        
-        results = []
-        for repo in items:
-            name = repo.get("full_name", "")
-            stars = repo.get("stargazers_count", 0)
-            desc = repo.get("description", "No description") or "No description"
-            lang = repo.get("language", "N/A") or "N/A"
-            results.append(f"- {name} (stars: {stars}, lang: {lang}) -- {desc}")
-        
-        return "\n".join(results)
-    except Exception as e:
-        return f"Error searching GitHub: {str(e)}"
-
-
-@tool(
-    name="search_research_papers",
-    description="Searches OpenAlex for foundational academic and research papers on a topic.",
-    parameters={"query": {"type": "string", "description": "The search query to find academic papers"}}
-)
-def search_research_papers(query: str) -> str:
-    """Searches OpenAlex for foundational academic papers."""
-    try:
-        res = requests.get(
-            "https://api.openalex.org/works",
-            params={"search": query, "per-page": 5, "sort": "cited_by_count:desc"}
-        )
-        if res.status_code != 200:
-            return "Error from OpenAlex API."
-        
-        papers = res.json().get("results", [])
-        if not papers:
-            return f"No research papers found for '{query}'."
-        
-        results = []
-        for p in papers:
-            title = p.get("title", "Untitled")
-            year = p.get("publication_year", "N/A")
-            citations = p.get("cited_by_count", 0)
-            results.append(f"- {title} (Year: {year}, Citations: {citations})")
-        
-        return "\n".join(results)
-    except Exception as e:
-        return f"Error searching papers: {str(e)}"
-        
 
 def build_system_prompt(tools: list[ToolDefinition]) -> str:
     tool_descriptions = "\n".join(
@@ -305,79 +41,6 @@ When you need to use a tool, respond with ONLY a JSON object in this exact forma
 {{"tool": "tool_name", "arguments": {{"param_name": "value"}}}}
 
 When you are ready to answer, respond with a well-structured plain text answer that synthesizes all your findings. Do NOT wrap your final answer in JSON."""
-
-
-# ── Information Gain Tracker ───────────────────────────────
-# Measures novelty of each tool result against accumulated knowledge.
-# Uses shingled n-grams (Jaccard-style) — no ML dependencies needed.
-
-class InformationGainTracker:
-    """Tracks information gain across tool calls using n-gram overlap."""
-
-    GAIN_THRESHOLD = 0.15        # below this = low gain
-    CONSECUTIVE_LOW_LIMIT = 2    # converge after N consecutive low-gain calls
-    SHINGLE_SIZE = 3             # word-level n-gram size
-
-    def __init__(self):
-        self._seen_shingles: set[tuple] = set()
-        self._gains: list[float] = []
-        self._consecutive_low = 0
-        self.converged = False
-
-    @staticmethod
-    def _shingle(text: str, n: int = 3) -> set[tuple]:
-        """Convert text into a set of word-level n-grams (shingles)."""
-        words = re.findall(r'\w+', text.lower())
-        if len(words) < n:
-            return {tuple(words)} if words else set()
-        return {tuple(words[i:i+n]) for i in range(len(words) - n + 1)}
-
-    def measure(self, tool_name: str, result: str) -> float:
-        """Compute information gain ratio for a new tool result.
-        Returns a float in [0, 1] where 1 = entirely new information."""
-        new_shingles = self._shingle(result, self.SHINGLE_SIZE)
-        if not new_shingles:
-            self._gains.append(0.0)
-            self._consecutive_low += 1
-            self._check_convergence()
-            return 0.0
-
-        novel = new_shingles - self._seen_shingles
-        gain = len(novel) / len(new_shingles)
-
-        self._seen_shingles |= new_shingles
-        self._gains.append(gain)
-
-        if gain < self.GAIN_THRESHOLD:
-            self._consecutive_low += 1
-        else:
-            self._consecutive_low = 0
-
-        self._check_convergence()
-
-        log("INFO", f"Information gain: {gain:.2f} "
-            f"({len(novel)}/{len(new_shingles)} novel shingles) "
-            f"[consecutive_low={self._consecutive_low}]",
-            data={"tool": tool_name, "gain": f"{gain:.3f}",
-                  "threshold": str(self.GAIN_THRESHOLD),
-                  "converged": str(self.converged)})
-        return gain
-
-    def _check_convergence(self):
-        if self._consecutive_low >= self.CONSECUTIVE_LOW_LIMIT:
-            self.converged = True
-
-    @property
-    def summary(self) -> dict:
-        return {
-            "gains": [round(g, 3) for g in self._gains],
-            "total_shingles": len(self._seen_shingles),
-            "converged": self.converged,
-            "consecutive_low": self._consecutive_low,
-        }
-
-CONVERGENCE_NUDGE = ("You have gathered enough information — the last tool calls returned mostly "
-                     "redundant data. Please synthesize your findings into a comprehensive final answer now.")
 
 
 def parse_response(response_text: str) -> AgentResponse:
@@ -431,15 +94,13 @@ def parse_response(response_text: str) -> AgentResponse:
 
 
 def call_llm(prompt: str, client: genai.Client, config: dict, max_retries: int = 3) -> AgentResponse:
-    # print(f"Waiting for {config['THROTTLE_RATE']} seconds to respect rate limits...")
-
     for attempt in range(max_retries):
         try:
             wait = config["THROTTLE_RATE"] * (2 ** attempt)  # Exponential backoff
             if attempt > 0:
                 log("INFO", f"Retry {attempt + 1}/{max_retries}: Waiting {wait}s...")
             time.sleep(wait)
-            
+
             response_text = client.models.generate_content(
                 model=config["GEMINI_MODEL"],
                 contents=prompt
@@ -451,16 +112,17 @@ def call_llm(prompt: str, client: genai.Client, config: dict, max_retries: int =
                 raise
     raise RuntimeError("LLM call failed after maximum retries.")
 
+
 def agent_loop(user_input: str, client: genai.Client, tools: list[ToolDefinition], config: dict):
     conversation = Conversation(messages=[])
     tracker = InformationGainTracker()
-    
+
     system_prompt = build_system_prompt(tools)
     log("SYSTEM", system_prompt)
     conversation.add(role="system", content=system_prompt)
-    conversation.add(role="assistant", content="Understood. I will use the tools when needed and respond with plain text when I have the answer.")  
+    conversation.add(role="assistant", content="Understood. I will use the tools when needed and respond with plain text when I have the answer.")
     conversation.add(role="user", content=user_input)
-    
+
     log("USER", user_input)
 
     for iteration in range(5):
@@ -471,7 +133,7 @@ def agent_loop(user_input: str, client: genai.Client, tools: list[ToolDefinition
         if response.is_final:
             log("ANSWER", response.content)
             break
-        
+
         if response.tool_call:
             tool_def = next((t for t in tools if t.name == response.tool_call.name), None)
             if not tool_def:
@@ -499,7 +161,7 @@ def agent_loop_stream(user_input: str, client: genai.Client, tools: list[ToolDef
     """Generator version of agent_loop that yields event dicts for SSE streaming."""
     conversation = Conversation(messages=[])
     tracker = InformationGainTracker()
-    
+
     system_prompt = build_system_prompt(tools)
     log("SYSTEM", system_prompt)
     conversation.add(role="system", content=system_prompt)
@@ -547,8 +209,8 @@ def agent_loop_stream(user_input: str, client: genai.Client, tools: list[ToolDef
                 conversation.add("system", CONVERGENCE_NUDGE)
 
     yield {"type": "error", "content": "Agent hit max iterations without a final answer."}
-            
-            
+
+
 if __name__ == "__main__":
     log("INFO", "Starting agent...")
     config = initialize_config()
