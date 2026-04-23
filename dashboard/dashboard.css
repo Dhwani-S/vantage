@@ -1768,6 +1768,12 @@ kbd {
 .chain-step.error .chain-icon {
   background: #ef4444;
 }
+.chain-step.info-gain .chain-icon {
+  background: #8b5cf6;
+}
+.chain-step.convergence .chain-icon {
+  background: #ec4899;
+}
 
 .chain-step .chain-body {
   flex: 1;
