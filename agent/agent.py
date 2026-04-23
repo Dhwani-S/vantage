@@ -306,6 +306,80 @@ When you need to use a tool, respond with ONLY a JSON object in this exact forma
 
 When you are ready to answer, respond with a well-structured plain text answer that synthesizes all your findings. Do NOT wrap your final answer in JSON."""
 
+
+# ── Information Gain Tracker ───────────────────────────────
+# Measures novelty of each tool result against accumulated knowledge.
+# Uses shingled n-grams (Jaccard-style) — no ML dependencies needed.
+
+class InformationGainTracker:
+    """Tracks information gain across tool calls using n-gram overlap."""
+
+    GAIN_THRESHOLD = 0.15        # below this = low gain
+    CONSECUTIVE_LOW_LIMIT = 2    # converge after N consecutive low-gain calls
+    SHINGLE_SIZE = 3             # word-level n-gram size
+
+    def __init__(self):
+        self._seen_shingles: set[tuple] = set()
+        self._gains: list[float] = []
+        self._consecutive_low = 0
+        self.converged = False
+
+    @staticmethod
+    def _shingle(text: str, n: int = 3) -> set[tuple]:
+        """Convert text into a set of word-level n-grams (shingles)."""
+        words = re.findall(r'\w+', text.lower())
+        if len(words) < n:
+            return {tuple(words)} if words else set()
+        return {tuple(words[i:i+n]) for i in range(len(words) - n + 1)}
+
+    def measure(self, tool_name: str, result: str) -> float:
+        """Compute information gain ratio for a new tool result.
+        Returns a float in [0, 1] where 1 = entirely new information."""
+        new_shingles = self._shingle(result, self.SHINGLE_SIZE)
+        if not new_shingles:
+            self._gains.append(0.0)
+            self._consecutive_low += 1
+            self._check_convergence()
+            return 0.0
+
+        novel = new_shingles - self._seen_shingles
+        gain = len(novel) / len(new_shingles)
+
+        self._seen_shingles |= new_shingles
+        self._gains.append(gain)
+
+        if gain < self.GAIN_THRESHOLD:
+            self._consecutive_low += 1
+        else:
+            self._consecutive_low = 0
+
+        self._check_convergence()
+
+        log("INFO", f"Information gain: {gain:.2f} "
+            f"({len(novel)}/{len(new_shingles)} novel shingles) "
+            f"[consecutive_low={self._consecutive_low}]",
+            data={"tool": tool_name, "gain": f"{gain:.3f}",
+                  "threshold": str(self.GAIN_THRESHOLD),
+                  "converged": str(self.converged)})
+        return gain
+
+    def _check_convergence(self):
+        if self._consecutive_low >= self.CONSECUTIVE_LOW_LIMIT:
+            self.converged = True
+
+    @property
+    def summary(self) -> dict:
+        return {
+            "gains": [round(g, 3) for g in self._gains],
+            "total_shingles": len(self._seen_shingles),
+            "converged": self.converged,
+            "consecutive_low": self._consecutive_low,
+        }
+
+CONVERGENCE_NUDGE = ("You have gathered enough information — the last tool calls returned mostly "
+                     "redundant data. Please synthesize your findings into a comprehensive final answer now.")
+
+
 def parse_response(response_text: str) -> AgentResponse:
     cleaned = response_text.strip()
     if cleaned.startswith("```"):
@@ -379,6 +453,7 @@ def call_llm(prompt: str, client: genai.Client, config: dict, max_retries: int =
 
 def agent_loop(user_input: str, client: genai.Client, tools: list[ToolDefinition], config: dict):
     conversation = Conversation(messages=[])
+    tracker = InformationGainTracker()
     
     system_prompt = build_system_prompt(tools)
     log("SYSTEM", system_prompt)
@@ -410,13 +485,20 @@ def agent_loop(user_input: str, client: genai.Client, tools: list[ToolDefinition
 
             conversation.add("agent", json.dumps({"tool": tool_def.name, "arguments": response.tool_call.arguments}))
             conversation.add("tool_result", result)
-        else:
-            log("WARN", "Agent hit max iterations without a final answer.")
+
+            # ── Convergence check ──
+            tracker.measure(tool_def.name, result)
+            if tracker.converged:
+                log("INFO", f"Convergence detected — nudging model to synthesize. Gains: {tracker.summary['gains']}")
+                conversation.add("system", CONVERGENCE_NUDGE)
+    else:
+        log("WARN", "Agent hit max iterations without a final answer.")
 
 
 def agent_loop_stream(user_input: str, client: genai.Client, tools: list[ToolDefinition], config: dict):
     """Generator version of agent_loop that yields event dicts for SSE streaming."""
     conversation = Conversation(messages=[])
+    tracker = InformationGainTracker()
     
     system_prompt = build_system_prompt(tools)
     log("SYSTEM", system_prompt)
@@ -453,6 +535,16 @@ def agent_loop_stream(user_input: str, client: genai.Client, tools: list[ToolDef
 
             conversation.add("agent", json.dumps({"tool": tool_def.name, "arguments": response.tool_call.arguments}))
             conversation.add("tool_result", result)
+
+            # ── Convergence check ──
+            gain = tracker.measure(tool_def.name, result)
+            yield {"type": "info_gain", "tool": tool_def.name, "gain": round(gain, 3),
+                   "converged": tracker.converged, "summary": tracker.summary}
+            if tracker.converged:
+                log("INFO", f"Convergence detected — nudging model to synthesize. Gains: {tracker.summary['gains']}")
+                yield {"type": "convergence", "message": "Low information gain detected — synthesizing findings.",
+                       "gains": tracker.summary["gains"]}
+                conversation.add("system", CONVERGENCE_NUDGE)
 
     yield {"type": "error", "content": "Agent hit max iterations without a final answer."}
             

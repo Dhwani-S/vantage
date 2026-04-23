@@ -1923,6 +1923,16 @@ ${sourceText}`;
           : JSON.stringify(event.output, null, 2).slice(0, 300);
         addChainStep("tool-result", `Result from ${event.tool}`, preview);
         break;
+      case "info_gain":
+        const pct = Math.round(event.gain * 100);
+        const bar = "█".repeat(Math.round(pct / 5)) + "░".repeat(20 - Math.round(pct / 5));
+        addChainStep("info-gain", `Info gain: ${pct}% ${bar}`, 
+          `Tool: ${event.tool}\nNovelty: ${pct}%\nConverged: ${event.converged}`);
+        break;
+      case "convergence":
+        addChainStep("convergence", "⚡ Convergence detected — synthesizing",
+          `Gains: [${event.gains.map(g => Math.round(g * 100) + "%").join(", ")}]`);
+        break;
       case "answer":
         researchAnswer.innerHTML = renderMarkdownToHtml(event.content);
         researchAnswer.classList.add("visible");
