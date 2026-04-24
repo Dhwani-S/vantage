@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Experiment Results — Information Gain Tracking</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #ffffff;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: #111827;
+  }
+  .page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 48px 56px;
+  }
+  .page-title {
+    font-size: 32px; font-weight: 900; margin-bottom: 8px;
+    color: #0a0a0a;
+  }
+  .page-title .accent { color: #6d28d9; }
+  .page-sub { font-size: 15px; color: #6b7280; margin-bottom: 48px; }
+
+  /* Chart containers */
+  .chart-section {
+    margin-bottom: 56px;
+    page-break-inside: avoid;
+  }
+  .chart-title {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 2.5px;
+    color: #6d28d9; font-weight: 800; margin-bottom: 6px;
+  }
+  .chart-heading {
+    font-size: 22px; font-weight: 800; color: #111827; margin-bottom: 20px;
+  }
+  .chart-box {
+    background: #fafafa;
+    border: 2px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 32px 36px;
+    position: relative;
+  }
+  .chart-box canvas { width: 100%; }
+  .chart-insight {
+    margin-top: 16px; padding: 14px 20px;
+    background: #f5f3ff; border: 1.5px solid #ddd6fe; border-radius: 10px;
+    font-size: 14px; color: #4c1d95; font-weight: 600; line-height: 1.5;
+  }
+  .chart-insight .tag {
+    display: inline-block; background: #6d28d9; color: #fff;
+    font-size: 10px; font-weight: 800; padding: 2px 8px;
+    border-radius: 4px; margin-right: 8px; vertical-align: middle;
+    letter-spacing: 1px;
+  }
+
+  /* Side-by-side layout */
+  .dual {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 28px;
+  }
+  .dual .chart-box { padding: 24px 28px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="page-title"><span class="accent">Experimental Validation</span> — Does It Actually Work?</div>
+  <div class="page-sub">4 experiments, 14 unit tests, real API data. Here's what we found.</div>
+
+  <!-- ═══ CHART 1: Three Tiers Bar Chart ═══ -->
+  <div class="chart-section">
+    <div class="chart-title">Experiment 1</div>
+    <div class="chart-heading">Information Gain Drops Only When Content Is Truly Redundant</div>
+    <div class="chart-box">
+      <canvas id="chart1" height="280"></canvas>
+    </div>
+    <div class="chart-insight">
+      <span class="tag">FINDING</span>
+      Paraphrased text (~62% gain) stays above threshold because different words = new n-grams. Only verbatim repetition triggers convergence. Zero false positives on diverse research.
+    </div>
+  </div>
+
+  <!-- ═══ CHART 2: Convergence Timeline ═══ -->
+  <div class="chart-section">
+    <div class="chart-title">Experiment 2</div>
+    <div class="chart-heading">Convergence Fires at the Right Time — Never Too Early</div>
+    <div class="chart-box">
+      <canvas id="chart2" height="300"></canvas>
+    </div>
+    <div class="chart-insight">
+      <span class="tag">FINDING</span>
+      Identical content converges at step 3. Novel injection delays convergence. All-unique content never converges. The 2-consecutive-low rule prevents premature stopping.
+    </div>
+  </div>
+
+  <!-- ═══ CHART 3: Live API Results ═══ -->
+  <div class="dual">
+    <div class="chart-section">
+      <div class="chart-title">Experiment 3A</div>
+      <div class="chart-heading">Same Topic, 4 APIs</div>
+      <div class="chart-box">
+        <canvas id="chart3a" height="260"></canvas>
+      </div>
+    </div>
+    <div class="chart-section">
+      <div class="chart-title">Experiment 3B</div>
+      <div class="chart-heading">Different Topics, 4 APIs</div>
+      <div class="chart-box">
+        <canvas id="chart3b" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="chart-insight" style="margin-top:-40px; margin-bottom:56px;">
+    <span class="tag">FINDING</span>
+    Real APIs return lexically distinct content even for the same topic — Wikipedia prose vs HN titles vs GitHub descriptions vs paper citations all use different vocabulary. Gain stays near 100%. No false convergence.
+  </div>
+
+  <!-- ═══ CHART 4: Before vs After ═══ -->
+  <div class="chart-section">
+    <div class="chart-title">Experiment 4</div>
+    <div class="chart-heading">Before vs After — Wasted Iterations in Stuck Loops</div>
+    <div class="chart-box">
+      <canvas id="chart4" height="240"></canvas>
+    </div>
+    <div class="chart-insight">
+      <span class="tag">FINDING</span>
+      In a pathological loop (agent repeating the same query), the tracker saves 2-3 iterations — a 40-60% reduction in wasted LLM calls. Legitimate research is unaffected.
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── Helpers ───
+const dpr = 2;
+function setupCanvas(id) {
+  const c = document.getElementById(id);
+  const w = c.offsetWidth, h = c.offsetHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { ctx, w, h };
+}
+
+const PURPLE = '#6d28d9';
+const PINK = '#be185d';
+const BLUE = '#2563eb';
+const GREEN = '#059669';
+const RED = '#dc2626';
+const GRAY = '#9ca3af';
+const LIGHT_PURPLE = 'rgba(109,40,217,0.12)';
+const LIGHT_PINK = 'rgba(190,24,93,0.12)';
+const LIGHT_BLUE = 'rgba(37,99,235,0.12)';
+const LIGHT_GREEN = 'rgba(5,150,105,0.12)';
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h); ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+// ════════════════════════════════════════════
+// CHART 1 — Three Tiers Grouped Bar
+// ════════════════════════════════════════════
+(function() {
+  const { ctx, w, h } = setupCanvas('chart1');
+  const pad = { top: 36, right: 40, bottom: 56, left: 60 };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+
+  const data = [
+    { label: 'tool_1\n(first call)', diverse: 1.0, paraphrased: 1.0, redundant: 1.0 },
+    { label: 'tool_2', diverse: 1.0, paraphrased: 0.75, redundant: 0.0 },
+    { label: 'tool_3', diverse: 1.0, paraphrased: 0.455, redundant: 0.0 },
+    { label: 'tool_4', diverse: 1.0, paraphrased: 0.448, redundant: 0.0 },
+    { label: 'tool_5', diverse: 1.0, paraphrased: 0.462, redundant: 0.0 },
+  ];
+
+  // Grid
+  ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1;
+  for (let v = 0; v <= 1; v += 0.25) {
+    const y = pad.top + (1 - v) * plotH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 11px Segoe UI'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(v*100) + '%', pad.left - 8, y + 4);
+  }
+
+  // Threshold line
+  const thY = pad.top + (1 - 0.15) * plotH;
+  ctx.strokeStyle = RED; ctx.lineWidth = 1.5; ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(pad.left, thY); ctx.lineTo(w - pad.right, thY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = RED; ctx.font = 'bold 10px Segoe UI'; ctx.textAlign = 'left';
+  ctx.fillText('threshold 15%', pad.left + 4, thY - 6);
+
+  const groupW = plotW / data.length;
+  const barW = groupW * 0.22;
+  const gap = 4;
+
+  const colors = [
+    { fill: PURPLE, bg: LIGHT_PURPLE },
+    { fill: BLUE, bg: LIGHT_BLUE },
+    { fill: PINK, bg: LIGHT_PINK },
+  ];
+  const keys = ['diverse', 'paraphrased', 'redundant'];
+  const labels = ['Diverse topics', 'Paraphrased', 'Redundant (copy-paste)'];
+
+  data.forEach((d, gi) => {
+    const gx = pad.left + gi * groupW + groupW * 0.12;
+    keys.forEach((k, ki) => {
+      const x = gx + ki * (barW + gap);
+      const barH = d[k] * plotH;
+      const y = pad.top + plotH - barH;
+
+      roundRect(ctx, x, y, barW, barH, 4);
+      ctx.fillStyle = colors[ki].fill;
+      ctx.globalAlpha = 0.85;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Value label
+      if (d[k] > 0) {
+        ctx.fillStyle = colors[ki].fill; ctx.font = 'bold 10px Segoe UI'; ctx.textAlign = 'center';
+        ctx.fillText(Math.round(d[k]*100) + '%', x + barW/2, y - 5);
+      } else {
+        ctx.fillStyle = RED; ctx.font = 'bold 10px Segoe UI'; ctx.textAlign = 'center';
+        ctx.fillText('0%', x + barW/2, y - 5);
+      }
+    });
+
+    // X label
+    ctx.fillStyle = '#374151'; ctx.font = 'bold 12px Segoe UI'; ctx.textAlign = 'center';
+    const labelX = gx + (3 * barW + 2 * gap) / 2;
+    d.label.split('\n').forEach((line, li) => {
+      ctx.fillText(line, labelX, pad.top + plotH + 18 + li * 14);
+    });
+  });
+
+  // Legend
+  const legX = w - pad.right - 260;
+  const legY = pad.top + 4;
+  labels.forEach((l, i) => {
+    roundRect(ctx, legX, legY + i * 22, 12, 12, 3);
+    ctx.fillStyle = colors[i].fill; ctx.fill();
+    ctx.fillStyle = '#374151'; ctx.font = '600 12px Segoe UI'; ctx.textAlign = 'left';
+    ctx.fillText(l, legX + 18, legY + i * 22 + 10);
+  });
+})();
+
+
+// ════════════════════════════════════════════
+// CHART 2 — Convergence Timeline (Heatmap-style)
+// ════════════════════════════════════════════
+(function() {
+  const { ctx, w, h } = setupCanvas('chart2');
+  const pad = { top: 20, right: 30, bottom: 30, left: 180 };
+
+  const scenarios = [
+    { label: 'A) All identical',  gains: [1.0, 0.0, 0.0, 0.0, 0.0], conv: 3 },
+    { label: 'B) Novel at step 3', gains: [1.0, 0.0, 1.0, 0.0, 0.0], conv: 5 },
+    { label: 'C) Novel at step 2', gains: [1.0, 1.0, 0.0, 0.0, 0.0], conv: 4 },
+    { label: 'D) Alternating',     gains: [1.0, 1.0, 0.0, 0.0, 0.0], conv: 4 },
+    { label: 'E) All unique',      gains: [1.0, 1.0, 1.0, 1.0, 1.0], conv: -1 },
+  ];
+
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+  const rowH = plotH / scenarios.length;
+  const colW = plotW / 5;
+
+  // Column headers
+  ctx.fillStyle = '#6b7280'; ctx.font = 'bold 12px Segoe UI'; ctx.textAlign = 'center';
+  for (let i = 0; i < 5; i++) {
+    ctx.fillText('Step ' + (i+1), pad.left + i * colW + colW/2, pad.top + 10);
+  }
+
+  scenarios.forEach((s, ri) => {
+    const ry = pad.top + 22 + ri * rowH;
+
+    // Row label
+    ctx.fillStyle = '#111827'; ctx.font = 'bold 13px Segoe UI'; ctx.textAlign = 'right';
+    ctx.fillText(s.label, pad.left - 14, ry + rowH/2 + 4);
+
+    s.gains.forEach((g, ci) => {
+      const cx = pad.left + ci * colW + 6;
+      const cy = ry + 4;
+      const cw = colW - 12;
+      const ch = rowH - 8;
+
+      // Cell color based on gain
+      let color, textColor;
+      if (g >= 0.8) {
+        color = '#dcfce7'; textColor = '#166534'; // green
+      } else if (g >= 0.15) {
+        color = '#fef9c3'; textColor = '#854d0e'; // yellow
+      } else {
+        color = '#fee2e2'; textColor = '#991b1b'; // red
+      }
+
+      // Convergence step highlight
+      if (s.conv === ci + 1) {
+        color = '#fecaca'; textColor = '#7f1d1d';
+      }
+
+      roundRect(ctx, cx, cy, cw, ch, 8);
+      ctx.fillStyle = color; ctx.fill();
+
+      // Gain value
+      ctx.fillStyle = textColor; ctx.font = 'bold 16px Segoe UI'; ctx.textAlign = 'center';
+      ctx.fillText(Math.round(g * 100) + '%', cx + cw/2, cy + ch/2 + 1);
+
+      // Convergence marker
+      if (s.conv === ci + 1) {
+        ctx.fillStyle = '#dc2626'; ctx.font = 'bold 9px Segoe UI';
+        ctx.fillText('CONV', cx + cw/2, cy + ch - 4);
+      }
+    });
+
+    // Result badge
+    const badgeX = w - pad.right + 2;
+  });
+
+  // "No convergence" label for E
+  ctx.fillStyle = GREEN; ctx.font = 'bold 11px Segoe UI'; ctx.textAlign = 'left';
+  ctx.fillText('never', w - pad.right + 6, pad.top + 22 + 4 * rowH + rowH/2 + 4);
+})();
+
+
+// ════════════════════════════════════════════
+// CHART 3A — Live API: Same Topic
+// ════════════════════════════════════════════
+function drawLiveChart(id, data, title) {
+  const { ctx, w, h } = setupCanvas(id);
+  const pad = { top: 24, right: 20, bottom: 60, left: 50 };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+
+  // Grid
+  ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1;
+  for (let v = 0; v <= 1; v += 0.25) {
+    const y = pad.top + (1 - v) * plotH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 10px Segoe UI'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(v*100) + '%', pad.left - 6, y + 3);
+  }
+
+  // Threshold
+  const thY = pad.top + (1 - 0.15) * plotH;
+  ctx.strokeStyle = RED; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(pad.left, thY); ctx.lineTo(w - pad.right, thY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  const barW = plotW / data.length * 0.6;
+  const barColors = [PURPLE, BLUE, GREEN, PINK];
+
+  data.forEach((d, i) => {
+    const x = pad.left + (i + 0.5) * (plotW / data.length) - barW/2;
+    const barH = d.gain * plotH;
+    const y = pad.top + plotH - barH;
+
+    roundRect(ctx, x, y, barW, barH, 6);
+    ctx.fillStyle = barColors[i]; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+
+    // Value
+    ctx.fillStyle = barColors[i]; ctx.font = 'bold 13px Segoe UI'; ctx.textAlign = 'center';
+    ctx.fillText(Math.round(d.gain * 100) + '%', x + barW/2, y - 7);
+
+    // Label
+    ctx.fillStyle = '#374151'; ctx.font = 'bold 10px Segoe UI';
+    const lines = d.label.split('\n');
+    lines.forEach((l, li) => {
+      ctx.fillText(l, x + barW/2, pad.top + plotH + 16 + li * 13);
+    });
+  });
+
+  // Verdict
+  const allHigh = data.every(d => d.gain > 0.15);
+  ctx.fillStyle = allHigh ? GREEN : RED;
+  ctx.font = 'bold 12px Segoe UI'; ctx.textAlign = 'right';
+  ctx.fillText(allHigh ? 'No convergence' : 'Converged!', w - pad.right, pad.top + 14);
+}
+
+drawLiveChart('chart3a', [
+  { label: 'Wikipedia\n"Redis"', gain: 1.0 },
+  { label: 'Hacker News\n"Redis caching"', gain: 1.0 },
+  { label: 'GitHub\n"Redis"', gain: 0.993 },
+  { label: 'OpenAlex\n"Redis caching"', gain: 1.0 },
+], 'Same Topic');
+
+drawLiveChart('chart3b', [
+  { label: 'Wikipedia\n"Redis"', gain: 1.0 },
+  { label: 'Hacker News\n"LLMs"', gain: 1.0 },
+  { label: 'GitHub\n"kubernetes"', gain: 1.0 },
+  { label: 'OpenAlex\n"transformers"', gain: 1.0 },
+], 'Different Topics');
+
+
+// ════════════════════════════════════════════
+// CHART 4 — Before vs After (Iterations Used)
+// ════════════════════════════════════════════
+(function() {
+  const { ctx, w, h } = setupCanvas('chart4');
+  const pad = { top: 30, right: 40, bottom: 50, left: 60 };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+
+  const scenarios = [
+    { label: 'Diverse research\n(different tools)', before: 5, after: 5, saved: 0 },
+    { label: 'Same topic\n(different APIs)', before: 5, after: 5, saved: 0 },
+    { label: 'Stuck loop\n(same query repeated)', before: 5, after: 3, saved: 2 },
+    { label: 'Worst case\n(instant repetition)', before: 5, after: 2, saved: 3 },
+  ];
+
+  const groupW = plotW / scenarios.length;
+  const barW = groupW * 0.3;
+  const gap = 6;
+
+  // Grid
+  ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1;
+  for (let v = 0; v <= 5; v++) {
+    const y = pad.top + (1 - v/5) * plotH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#9ca3af'; ctx.font = 'bold 11px Segoe UI'; ctx.textAlign = 'right';
+    ctx.fillText(v, pad.left - 8, y + 4);
+  }
+  ctx.fillStyle = '#6b7280'; ctx.font = 'bold 11px Segoe UI'; ctx.textAlign = 'center';
+  ctx.save(); ctx.translate(14, pad.top + plotH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Iterations used', 0, 0); ctx.restore();
+
+  scenarios.forEach((s, i) => {
+    const gx = pad.left + i * groupW + groupW * 0.15;
+
+    // Before bar
+    const bH = (s.before / 5) * plotH;
+    const bY = pad.top + plotH - bH;
+    roundRect(ctx, gx, bY, barW, bH, 5);
+    ctx.fillStyle = '#d1d5db'; ctx.fill();
+    ctx.fillStyle = '#6b7280'; ctx.font = 'bold 12px Segoe UI'; ctx.textAlign = 'center';
+    ctx.fillText(s.before, gx + barW/2, bY - 6);
+
+    // After bar
+    const aH = (s.after / 5) * plotH;
+    const aY = pad.top + plotH - aH;
+    roundRect(ctx, gx + barW + gap, aY, barW, aH, 5);
+    ctx.fillStyle = s.saved > 0 ? GREEN : PURPLE; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = s.saved > 0 ? GREEN : PURPLE; ctx.font = 'bold 12px Segoe UI';
+    ctx.fillText(s.after, gx + barW + gap + barW/2, aY - 6);
+
+    // Saved label
+    if (s.saved > 0) {
+      const savedY = bY + (bH - aH) / 2;
+      ctx.fillStyle = GREEN; ctx.font = 'bold 11px Segoe UI';
+      ctx.fillText('-' + s.saved + ' saved', gx + barW + gap + barW/2 + 2, aY - 20);
+    }
+
+    // X label
+    ctx.fillStyle = '#374151'; ctx.font = 'bold 11px Segoe UI'; ctx.textAlign = 'center';
+    const lx = gx + barW + gap/2;
+    s.label.split('\n').forEach((line, li) => {
+      ctx.fillText(line, lx, pad.top + plotH + 18 + li * 14);
+    });
+  });
+
+  // Legend
+  const legX = w - pad.right - 180;
+  const legY = pad.top + 6;
+  roundRect(ctx, legX, legY, 12, 12, 3); ctx.fillStyle = '#d1d5db'; ctx.fill();
+  ctx.fillStyle = '#374151'; ctx.font = '600 12px Segoe UI'; ctx.textAlign = 'left';
+  ctx.fillText('Before (no tracker)', legX + 18, legY + 10);
+  roundRect(ctx, legX, legY + 20, 12, 12, 3); ctx.fillStyle = PURPLE; ctx.fill();
+  ctx.fillText('After (with tracker)', legX + 18, legY + 30);
+})();
+
+</script>
+</body>
+</html>

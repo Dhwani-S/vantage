@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Early Stopping for Agents — Cover</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 1920px; height: 1080px; overflow: hidden; background: #fff; font-family: 'Segoe UI', system-ui, sans-serif; color: #111827; }
+  .page { width: 1920px; height: 1080px; padding: 44px 56px 36px; display: flex; flex-direction: column; }
+
+  .header { flex-shrink: 0; margin-bottom: 18px; }
+  .header h1 { font-size: 42px; font-weight: 900; line-height: 1.1; }
+  .header h1 .acc { color: #6d28d9; }
+  .header .sub { font-size: 15px; color: #6b7280; font-weight: 600; margin-top: 4px; }
+
+  .body { flex: 1; display: grid; grid-template-columns: 48% 52%; gap: 28px; min-height: 0; }
+
+  .left { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .hero-chart { flex: 1; background: #fafafa; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 14px 18px 10px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .hero-chart .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 2px; color: #6d28d9; font-weight: 800; margin-bottom: 6px; }
+  .hero-chart .ca { flex: 1; position: relative; min-height: 0; }
+  .hero-chart .ca canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+  .bottom-row { display: flex; gap: 12px; flex-shrink: 0; }
+  .formula-box, .analogy-box { background: #fafafa; border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 12px 16px; }
+  .formula-box { flex: 1.1; text-align: center; }
+  .formula-box .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 2px; color: #6d28d9; font-weight: 800; margin-bottom: 4px; }
+  .formula-box .f { font-size: 20px; font-family: 'Cambria Math', Georgia, serif; font-weight: 600; }
+  .formula-box .f .hl { color: #6d28d9; font-weight: 700; }
+  .formula-box .f .frac { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; margin: 0 3px; }
+  .formula-box .f .frac .num { border-bottom: 2px solid #9ca3af; padding-bottom: 1px; }
+  .formula-box .f .frac .den { padding-top: 1px; }
+  .analogy-box { flex: 0.9; display: flex; gap: 10px; align-items: center; justify-content: center; }
+  .analogy-box .side { text-align: center; }
+  .analogy-box .dm { font-size: 8px; text-transform: uppercase; letter-spacing: 1.5px; color: #6b7280; font-weight: 800; margin-bottom: 2px; }
+  .analogy-box .eq { font-size: 15px; font-family: 'Cambria Math', Georgia, serif; font-weight: 600; }
+  .analogy-box .eq .hl { color: #6d28d9; font-weight: 700; }
+  .analogy-box .arr { color: #9ca3af; font-size: 18px; font-weight: 900; }
+
+  .right { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 12px; min-height: 0; }
+  .panel { background: #fafafa; border: 1.5px solid #e5e7eb; border-radius: 10px; padding: 10px 14px 8px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .panel .pl { font-size: 8px; text-transform: uppercase; letter-spacing: 1.5px; color: #6d28d9; font-weight: 800; }
+  .panel .pt { font-size: 12px; font-weight: 800; color: #111827; margin-bottom: 4px; line-height: 1.15; }
+  .panel .ca { flex: 1; position: relative; min-height: 0; }
+  .panel .ca canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .panel .fd { font-size: 8px; color: #4c1d95; font-weight: 700; background: #f5f3ff; border-radius: 4px; padding: 3px 6px; margin-top: 4px; flex-shrink: 0; line-height: 1.25; }
+
+  .footer { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 8px; border-top: 1.5px solid #e5e7eb; }
+  .footer .left-f { font-size: 12px; color: #6b7280; font-weight: 600; }
+  .footer .left-f strong { color: #111827; }
+  .footer .left-f a { color: #6d28d9; text-decoration: none; font-weight: 700; }
+  .footer .tags { display: flex; gap: 8px; }
+  .footer .ftag { background: #ede9fe; border: 1.5px solid #a78bfa; border-radius: 12px; padding: 2px 10px; color: #5b21b6; font-size: 10px; font-weight: 800; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <h1><span class="acc">Early Stopping for Agents</span> — Information Gain Tracking in Agentic Loops</h1>
+    <div class="sub">n-gram shingling &middot; 60 lines of Python &middot; 0 ML dependencies &middot; experimentally validated</div>
+  </div>
+  <div class="body">
+    <div class="left">
+      <div class="hero-chart">
+        <div class="lbl">Information Gain per Tool Call</div>
+        <div class="ca"><canvas id="hero"></canvas></div>
+      </div>
+      <div class="bottom-row">
+        <div class="formula-box">
+          <div class="lbl">Core Formula</div>
+          <div class="f">gain<sub>t</sub> = <span class="frac"><span class="num">| <span class="hl">new shingles</span> |</span><span class="den">| <span class="hl">all shingles<sub>t</sub></span> |</span></span></div>
+        </div>
+        <div class="analogy-box">
+          <div class="side"><div class="dm">SGD</div><div class="eq"><span class="hl">&nabla;L &asymp; 0</span> &rarr; stop</div></div>
+          <div class="arr">&equiv;</div>
+          <div class="side"><div class="dm">Agents</div><div class="eq"><span class="hl">&Delta;Info &asymp; 0</span> &rarr; stop</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="right">
+      <div class="panel"><div class="pl">Exp 1</div><div class="pt">Diverse vs Redundant</div><div class="ca"><canvas id="c1"></canvas></div><div class="fd">Paraphrases (~62%) safe. Only copy-paste triggers convergence.</div></div>
+      <div class="panel"><div class="pl">Exp 2</div><div class="pt">Convergence Timing</div><div class="ca"><canvas id="c2"></canvas></div><div class="fd">Fires after 2 consecutive low-gain steps. Novel data resets counter.</div></div>
+      <div class="panel"><div class="pl">Exp 3</div><div class="pt">Live API — Same Topic, 4 Tools</div><div class="ca"><canvas id="c3"></canvas></div><div class="fd">Different APIs = different vocab. Gain ~100%. No false convergence.</div></div>
+      <div class="panel"><div class="pl">Exp 4</div><div class="pt">Iterations Saved</div><div class="ca"><canvas id="c4"></canvas></div><div class="fd">Stuck loops: 5&rarr;2 iterations. Saves 40-60% wasted LLM calls.</div></div>
+    </div>
+  </div>
+  <div class="footer">
+    <div class="left-f"><strong>Vantage</strong> — Deep Research Chrome Extension &middot; <a href="https://github.com/Dhwani-S/vantage">github.com/Dhwani-S/vantage</a></div>
+    <div class="tags"><span class="ftag">n-gram shingling</span><span class="ftag">60 lines &middot; 0 ML deps</span></div>
+  </div>
+</div>
+<script>
+const dpr=2,P='#6d28d9',B='#2563eb',PK='#be185d',G='#059669',R='#dc2626',GR='#9ca3af';
+function setup(id){const c=document.getElementById(id),w=c.offsetWidth,h=c.offsetHeight;c.width=w*dpr;c.height=h*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);return{ctx,w,h};}
+function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();}
+
+// HERO
+(function(){
+  const{ctx,w,h}=setup('hero');const p={t:14,r:20,b:38,l:38},pw=w-p.l-p.r,ph=h-p.t-p.b;
+  const tools=[{n:'Wikipedia\n(Redis)',g:1},{n:'Wikipedia\n(Memcached)',g:.87},{n:'Hacker News',g:.52},{n:'GitHub',g:.11},{n:'OpenAlex',g:.08}];
+  function xp(i){return p.l+(i/4)*pw;}function yp(v){return p.t+(1-v)*ph;}
+  ctx.strokeStyle='#e5e7eb';ctx.lineWidth=1;
+  for(let v=0;v<=1;v+=.25){ctx.beginPath();ctx.moveTo(p.l,yp(v));ctx.lineTo(w-p.r,yp(v));ctx.stroke();ctx.fillStyle=GR;ctx.font='bold 10px Segoe UI';ctx.textAlign='right';ctx.fillText(Math.round(v*100)+'%',p.l-5,yp(v)+3);}
+  const cX=xp(3);ctx.fillStyle='rgba(190,24,93,0.05)';ctx.fillRect(cX-2,p.t,w-p.r-cX+2,ph);
+  ctx.strokeStyle=R;ctx.lineWidth=1.5;ctx.setLineDash([5,3]);ctx.beginPath();ctx.moveTo(p.l,yp(.15));ctx.lineTo(w-p.r,yp(.15));ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle=R;ctx.font='bold 10px Segoe UI';ctx.textAlign='right';ctx.fillText('threshold 15%',w-p.r,yp(.15)-5);
+  const grad=ctx.createLinearGradient(0,p.t,0,p.t+ph);grad.addColorStop(0,'rgba(109,40,217,0.14)');grad.addColorStop(1,'rgba(109,40,217,0)');
+  ctx.beginPath();ctx.moveTo(xp(0),yp(0));tools.forEach((t,i)=>ctx.lineTo(xp(i),yp(t.g)));ctx.lineTo(xp(4),yp(0));ctx.closePath();ctx.fillStyle=grad;ctx.fill();
+  ctx.beginPath();tools.forEach((t,i)=>{i===0?ctx.moveTo(xp(i),yp(t.g)):ctx.lineTo(xp(i),yp(t.g));});ctx.strokeStyle=P;ctx.lineWidth=3;ctx.lineJoin='round';ctx.stroke();
+  tools.forEach((t,i)=>{const cx=xp(i),cy=yp(t.g),low=t.g<.15;ctx.beginPath();ctx.arc(cx,cy,5,0,Math.PI*2);ctx.fillStyle=low?PK:P;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+    ctx.fillStyle=low?PK:P;ctx.font='bold 13px Segoe UI';ctx.textAlign='center';ctx.fillText(Math.round(t.g*100)+'%',cx,cy-10);
+    ctx.fillStyle='#374151';ctx.font='bold 10px Segoe UI';t.n.split('\n').forEach((l,li)=>ctx.fillText(l,cx,p.t+ph+14+li*12));});
+  ctx.fillStyle=PK;ctx.font='bold 11px Segoe UI';ctx.textAlign='center';ctx.fillText('CONVERGENCE',(cX+xp(4))/2,p.t+12);
+})();
+
+// EXP1
+(function(){
+  const{ctx,w,h}=setup('c1');const p={t:16,r:12,b:28,l:28},pw=w-p.l-p.r,ph=h-p.t-p.b;
+  const data=[{d:1,p:1,r:1},{d:1,p:.75,r:0},{d:1,p:.455,r:0},{d:1,p:.448,r:0},{d:1,p:.462,r:0}];
+  ctx.strokeStyle='#f0f0f0';ctx.lineWidth=1;
+  for(let v=0;v<=1;v+=.5){const y=p.t+(1-v)*ph;ctx.beginPath();ctx.moveTo(p.l,y);ctx.lineTo(w-p.r,y);ctx.stroke();ctx.fillStyle=GR;ctx.font='bold 8px Segoe UI';ctx.textAlign='right';ctx.fillText(Math.round(v*100)+'%',p.l-3,y+3);}
+  const ty=p.t+(1-.15)*ph;ctx.strokeStyle=R;ctx.lineWidth=1;ctx.setLineDash([3,2]);ctx.beginPath();ctx.moveTo(p.l,ty);ctx.lineTo(w-p.r,ty);ctx.stroke();ctx.setLineDash([]);
+  const gw=pw/5,bw=gw*.2,gap=2,cols=[P,B,PK],keys=['d','p','r'];
+  data.forEach((d,gi)=>{const gx=p.l+gi*gw+gw*.1;keys.forEach((k,ki)=>{const x=gx+ki*(bw+gap),bh=d[k]*ph,y=p.t+ph-bh;rr(ctx,x,y,bw,bh,2);ctx.fillStyle=cols[ki];ctx.globalAlpha=.8;ctx.fill();ctx.globalAlpha=1;});
+    ctx.fillStyle='#374151';ctx.font='bold 8px Segoe UI';ctx.textAlign='center';ctx.fillText(gi+1,gx+(3*bw+2*gap)/2,p.t+ph+12);});
+  const lx=w-p.r-120,ly=p.t;['Diverse','Paraph.','Redund.'].forEach((l,i)=>{rr(ctx,lx,ly+i*11,6,6,1);ctx.fillStyle=cols[i];ctx.fill();ctx.fillStyle='#374151';ctx.font='600 7px Segoe UI';ctx.textAlign='left';ctx.fillText(l,lx+9,ly+i*11+5);});
+})();
+
+// EXP2
+(function(){
+  const{ctx,w,h}=setup('c2');const p={t:4,r:6,b:2,l:90};
+  const sc=[{l:'All identical',g:[1,0,0,0,0],c:3},{l:'Novel@3',g:[1,0,1,0,0],c:5},{l:'Novel@2',g:[1,1,0,0,0],c:4},{l:'Alternating',g:[1,1,0,0,0],c:4},{l:'All unique',g:[1,1,1,1,1],c:-1}];
+  const pw=w-p.l-p.r,ph=h-p.t-p.b,rh=ph/5,cw=pw/5;
+  ctx.fillStyle=GR;ctx.font='bold 7px Segoe UI';ctx.textAlign='center';for(let i=0;i<5;i++)ctx.fillText('S'+(i+1),p.l+i*cw+cw/2,p.t+7);
+  sc.forEach((s,ri)=>{const ry=p.t+10+ri*rh;ctx.fillStyle='#111827';ctx.font='bold 9px Segoe UI';ctx.textAlign='right';ctx.fillText(s.l,p.l-6,ry+rh/2+3);
+    s.g.forEach((g,ci)=>{const cx=p.l+ci*cw+3,cy=ry+1,cew=cw-6,ceh=rh-3;let col,tc;
+      if(g>=.8){col='#dcfce7';tc='#166534';}else if(g>=.15){col='#fef9c3';tc='#854d0e';}else{col='#fee2e2';tc='#991b1b';}
+      if(s.c===ci+1){col='#fecaca';tc='#7f1d1d';}rr(ctx,cx,cy,cew,ceh,4);ctx.fillStyle=col;ctx.fill();
+      ctx.fillStyle=tc;ctx.font='bold 10px Segoe UI';ctx.textAlign='center';ctx.fillText(Math.round(g*100)+'%',cx+cew/2,cy+ceh/2+2);
+      if(s.c===ci+1){ctx.fillStyle=R;ctx.font='bold 6px Segoe UI';ctx.fillText('CONV',cx+cew/2,cy+ceh-2);}});});
+})();
+
+// EXP3
+(function(){
+  const{ctx,w,h}=setup('c3');const p={t:10,r:10,b:34,l:28},pw=w-p.l-p.r,ph=h-p.t-p.b;
+  const data=[{l:'Wiki',g:1},{l:'HN',g:1},{l:'GitHub',g:.993},{l:'Papers',g:1}],cols=[P,B,G,PK];
+  ctx.strokeStyle='#f0f0f0';ctx.lineWidth=1;
+  for(let v=0;v<=1;v+=.5){const y=p.t+(1-v)*ph;ctx.beginPath();ctx.moveTo(p.l,y);ctx.lineTo(w-p.r,y);ctx.stroke();ctx.fillStyle=GR;ctx.font='bold 8px Segoe UI';ctx.textAlign='right';ctx.fillText(Math.round(v*100)+'%',p.l-3,y+3);}
+  const ty=p.t+(1-.15)*ph;ctx.strokeStyle=R;ctx.lineWidth=1;ctx.setLineDash([3,2]);ctx.beginPath();ctx.moveTo(p.l,ty);ctx.lineTo(w-p.r,ty);ctx.stroke();ctx.setLineDash([]);
+  const bw=pw/4*.5;data.forEach((d,i)=>{const x=p.l+(i+.5)*(pw/4)-bw/2,bh=d.g*ph,y=p.t+ph-bh;
+    rr(ctx,x,y,bw,bh,4);ctx.fillStyle=cols[i];ctx.globalAlpha=.8;ctx.fill();ctx.globalAlpha=1;
+    ctx.fillStyle=cols[i];ctx.font='bold 10px Segoe UI';ctx.textAlign='center';ctx.fillText(Math.round(d.g*100)+'%',x+bw/2,y-4);
+    ctx.fillStyle='#374151';ctx.font='bold 8px Segoe UI';ctx.fillText(d.l,x+bw/2,p.t+ph+12);});
+  ctx.fillStyle=G;ctx.font='bold 9px Segoe UI';ctx.textAlign='right';ctx.fillText('No convergence',w-p.r,p.t+8);
+})();
+
+// EXP4
+(function(){
+  const{ctx,w,h}=setup('c4');const p={t:14,r:12,b:30,l:30},pw=w-p.l-p.r,ph=h-p.t-p.b;
+  const data=[{l:'Diverse',b:5,a:5,s:0},{l:'Same topic',b:5,a:5,s:0},{l:'Stuck',b:5,a:3,s:2},{l:'Worst',b:5,a:2,s:3}];
+  ctx.strokeStyle='#f0f0f0';ctx.lineWidth=1;
+  for(let v=0;v<=5;v++){const y=p.t+(1-v/5)*ph;ctx.beginPath();ctx.moveTo(p.l,y);ctx.lineTo(w-p.r,y);ctx.stroke();ctx.fillStyle=GR;ctx.font='bold 8px Segoe UI';ctx.textAlign='right';ctx.fillText(v,p.l-3,y+3);}
+  const gw=pw/4,bw=gw*.22,gap=3;
+  data.forEach((d,i)=>{const gx=p.l+i*gw+gw*.22;
+    const bh=(d.b/5)*ph,by=p.t+ph-bh;rr(ctx,gx,by,bw,bh,3);ctx.fillStyle='#d1d5db';ctx.fill();
+    ctx.fillStyle='#6b7280';ctx.font='bold 9px Segoe UI';ctx.textAlign='center';ctx.fillText(d.b,gx+bw/2,by-3);
+    const ah=(d.a/5)*ph,ay=p.t+ph-ah;rr(ctx,gx+bw+gap,ay,bw,ah,3);ctx.fillStyle=d.s>0?G:P;ctx.globalAlpha=.8;ctx.fill();ctx.globalAlpha=1;
+    ctx.fillStyle=d.s>0?G:P;ctx.font='bold 9px Segoe UI';ctx.fillText(d.a,gx+bw+gap+bw/2,ay-3);
+    if(d.s>0){ctx.fillStyle=G;ctx.font='bold 8px Segoe UI';ctx.fillText('-'+d.s,gx+bw+gap+bw/2,ay-14);}
+    ctx.fillStyle='#374151';ctx.font='bold 8px Segoe UI';ctx.textAlign='center';ctx.fillText(d.l,gx+bw+gap/2,p.t+ph+12);});
+  const lx=w-p.r-100,ly=p.t;rr(ctx,lx,ly,6,6,1);ctx.fillStyle='#d1d5db';ctx.fill();ctx.fillStyle='#374151';ctx.font='600 7px Segoe UI';ctx.textAlign='left';ctx.fillText('Before',lx+9,ly+5);
+  rr(ctx,lx,ly+11,6,6,1);ctx.fillStyle=P;ctx.fill();ctx.fillText('After',lx+9,ly+16);
+})();
+</script>
+</body>
+</html>

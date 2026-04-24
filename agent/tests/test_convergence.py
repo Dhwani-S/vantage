@@ -23,7 +23,6 @@ class TestShingle(unittest.TestCase):
         self.assertEqual(shingles, expected)
 
     def test_short_text(self):
-        # Fewer words than n → single tuple
         self.assertEqual(
             InformationGainTracker._shingle("hello world", n=3),
             {("hello", "world")}
@@ -66,7 +65,6 @@ class TestGainMeasurement(unittest.TestCase):
     def test_partial_overlap(self):
         t = InformationGainTracker()
         t.measure("tool_a", "Redis is a fast in-memory data store used for caching")
-        # ~50% overlap
         gain = t.measure("tool_b", "Redis is a fast key-value database with pub-sub support")
         self.assertGreater(gain, 0.3)
         self.assertLess(gain, 0.9)
@@ -77,7 +75,7 @@ class TestGainMeasurement(unittest.TestCase):
         t.measure("b", "zeta eta theta iota kappa")
         t.measure("c", "lambda mu nu xi omicron")
         self.assertEqual(len(t.summary["gains"]), 3)
-        self.assertEqual(t.summary["total_shingles"], 9)  # 3 shingles each
+        self.assertEqual(t.summary["total_shingles"], 9)
 
 
 class TestConvergence(unittest.TestCase):
@@ -93,16 +91,15 @@ class TestConvergence(unittest.TestCase):
         t = InformationGainTracker()
         text = "Redis is a fast in-memory data store used for caching in distributed systems"
         t.measure("a", text)
-        t.measure("b", text)  # gain = 0 → low #1
-        t.measure("c", text)  # gain = 0 → low #2 → CONVERGE
+        t.measure("b", text)
+        t.measure("c", text)
         self.assertTrue(t.converged)
 
     def test_convergence_resets_on_novel_data(self):
         t = InformationGainTracker()
         text = "Redis is a fast in-memory data store used for caching"
         t.measure("a", text)
-        t.measure("b", text)  # low #1
-        # Inject novel data before second consecutive low
+        t.measure("b", text)
         t.measure("c", "Completely different topic about machine learning and neural networks")
         self.assertFalse(t.converged)
         self.assertEqual(t._consecutive_low, 0)

@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Information Gain Tracking — Vantage</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1920px;
+    height: 1080px;
+    background: #0f0f1a;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #e0e0e0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* subtle grid bg */
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(99,102,241,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99,102,241,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr auto;
+    height: 100%;
+    padding: 60px 80px 50px;
+    gap: 0 80px;
+  }
+
+  /* ── Header ── */
+  .header {
+    grid-column: 1 / -1;
+    margin-bottom: 30px;
+  }
+  .header h1 {
+    font-size: 46px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, #a78bfa, #ec4899, #f97316);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1.15;
+  }
+  .header .subtitle {
+    font-size: 20px;
+    color: #94a3b8;
+    margin-top: 8px;
+    font-weight: 400;
+  }
+  .header .subtitle span {
+    color: #c4b5fd;
+    font-weight: 600;
+  }
+
+  /* ── Left: Chart area ── */
+  .chart-area {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .chart-title {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #64748b;
+    margin-bottom: 16px;
+  }
+
+  canvas {
+    width: 100%;
+    border-radius: 16px;
+    background: rgba(15,15,30,0.6);
+    border: 1px solid rgba(139,92,246,0.15);
+  }
+
+  /* ── Right: Architecture + Formula ── */
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 36px;
+  }
+
+  /* Formula card */
+  .formula-card {
+    background: rgba(30,30,50,0.7);
+    border: 1px solid rgba(139,92,246,0.2);
+    border-radius: 16px;
+    padding: 28px 32px;
+    backdrop-filter: blur(10px);
+  }
+  .formula-card .label {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #8b5cf6;
+    margin-bottom: 14px;
+  }
+  .formula {
+    font-size: 28px;
+    font-family: 'Cambria Math', 'Latin Modern Math', Georgia, serif;
+    color: #e2e8f0;
+    text-align: center;
+    padding: 8px 0;
+    line-height: 1.6;
+  }
+  .formula .frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: middle;
+    margin: 0 6px;
+  }
+  .formula .frac .num { border-bottom: 2px solid #94a3b8; padding-bottom: 4px; }
+  .formula .frac .den { padding-top: 4px; }
+  .formula .hl { color: #a78bfa; }
+  .formula .pink { color: #ec4899; }
+
+  /* 3-layer card */
+  .layers-card {
+    background: rgba(30,30,50,0.7);
+    border: 1px solid rgba(139,92,246,0.2);
+    border-radius: 16px;
+    padding: 28px 32px;
+    backdrop-filter: blur(10px);
+  }
+  .layers-card .label {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #8b5cf6;
+    margin-bottom: 18px;
+  }
+  .layers {
+    display: flex;
+    gap: 16px;
+  }
+  .layer {
+    flex: 1;
+    border-radius: 12px;
+    padding: 18px 16px;
+    text-align: center;
+  }
+  .layer .num {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+  .layer .name {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .layer .desc {
+    font-size: 11px;
+    opacity: 0.7;
+  }
+  .layer-1 { background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); }
+  .layer-1 .num { color: #818cf8; }
+  .layer-2 { background: rgba(236,72,153,0.15); border: 1px solid rgba(236,72,153,0.3); }
+  .layer-2 .num { color: #f472b6; }
+  .layer-3 { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); }
+  .layer-3 .num { color: #f87171; }
+
+  /* Analogy */
+  .analogy {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+  .analogy-box {
+    flex: 1;
+    background: rgba(30,30,50,0.7);
+    border: 1px solid rgba(139,92,246,0.2);
+    border-radius: 12px;
+    padding: 20px 24px;
+    text-align: center;
+  }
+  .analogy-box .domain {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #64748b;
+    margin-bottom: 8px;
+  }
+  .analogy-box .eq {
+    font-size: 18px;
+    font-family: 'Cambria Math', Georgia, serif;
+    color: #e2e8f0;
+  }
+  .analogy-box .eq .hl { color: #a78bfa; }
+  .analogy-arrow {
+    font-size: 28px;
+    color: #475569;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-top: 20px;
+    border-top: 1px solid rgba(100,116,139,0.15);
+    margin-top: 10px;
+  }
+  .footer .left {
+    font-size: 14px;
+    color: #64748b;
+  }
+  .footer .left a {
+    color: #a78bfa;
+    text-decoration: none;
+  }
+  .footer .right {
+    display: flex;
+    gap: 24px;
+    font-size: 13px;
+    color: #475569;
+  }
+  .footer .tag {
+    background: rgba(139,92,246,0.1);
+    border: 1px solid rgba(139,92,246,0.2);
+    border-radius: 20px;
+    padding: 4px 14px;
+    color: #a78bfa;
+    font-size: 12px;
+  }
+
+  /* glow accents */
+  .glow-1 {
+    position: absolute;
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%);
+    top: -100px; right: 200px;
+    pointer-events: none;
+  }
+  .glow-2 {
+    position: absolute;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(236,72,153,0.06) 0%, transparent 70%);
+    bottom: -150px; left: 100px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <div class="glow-1"></div>
+  <div class="glow-2"></div>
+
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>Early Stopping for Agents:<br>Information Gain Tracking in Agentic Loops</h1>
+      <div class="subtitle">Built from scratch for <span>TSAI EAGV3</span> — no LangChain, no frameworks, just Python</div>
+    </div>
+
+    <!-- Left: Chart -->
+    <div class="chart-area">
+      <div class="chart-title">Information Gain per Tool Call</div>
+      <canvas id="chart" width="800" height="400"></canvas>
+
+      <div class="analogy" style="margin-top: 28px;">
+        <div class="analogy-box">
+          <div class="domain">SGD / Training</div>
+          <div class="eq"><span class="hl">∇L ≈ 0</span> → stop training</div>
+        </div>
+        <div class="analogy-arrow">≡</div>
+        <div class="analogy-box">
+          <div class="domain">Agents / Inference</div>
+          <div class="eq"><span class="hl">ΔInfo ≈ 0</span> → stop researching</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div class="right-panel">
+      <div class="formula-card">
+        <div class="label">Core Formula</div>
+        <div class="formula">
+          gain<sub>t</sub> =
+          <span class="frac">
+            <span class="num">| <span class="hl">shingles<sub>t</sub></span> \ ∪<sub>i&lt;t</sub> shingles<sub>i</sub> |</span>
+            <span class="den">| <span class="hl">shingles<sub>t</sub></span> |</span>
+          </span>
+        </div>
+        <div style="text-align:center; margin-top:12px; color:#94a3b8; font-size:14px;">
+          Novelty ratio: fraction of genuinely new n-grams per tool call
+        </div>
+      </div>
+
+      <div class="layers-card">
+        <div class="label">3-Layer Stopping Architecture</div>
+        <div class="layers">
+          <div class="layer layer-1">
+            <div class="num">1</div>
+            <div class="name">LLM Opts Out</div>
+            <div class="desc">Model outputs final answer</div>
+          </div>
+          <div class="layer layer-2">
+            <div class="num">2</div>
+            <div class="name">Info Gain</div>
+            <div class="desc">Convergence detection</div>
+          </div>
+          <div class="layer layer-3">
+            <div class="num">3</div>
+            <div class="name">Hard Cap</div>
+            <div class="desc">range(5) safety net</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <div class="left">
+        <strong style="color:#e2e8f0;">Vantage</strong> — Deep Research Chrome Extension &nbsp;·&nbsp;
+        <a href="https://github.com/Dhwani-S/vantage">github.com/Dhwani-S/vantage</a>
+      </div>
+      <div class="right">
+        <span class="tag">TSAI EAGV3</span>
+        <span class="tag">60 lines · 0 ML deps</span>
+        <span class="tag">n-gram shingling</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('chart');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const pad = { top: 30, right: 40, bottom: 60, left: 60 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    // Data: simulated gain values across 5 tool calls
+    const tools = [
+      { name: 'Wikipedia\n(Redis)', gain: 1.0 },
+      { name: 'Wikipedia\n(Memcached)', gain: 0.87 },
+      { name: 'Hacker News', gain: 0.52 },
+      { name: 'GitHub', gain: 0.11 },
+      { name: 'OpenAlex', gain: 0.08 },
+    ];
+
+    const threshold = 0.15;
+
+    function x(i) { return pad.left + (i / (tools.length - 1)) * plotW; }
+    function y(v) { return pad.top + (1 - v) * plotH; }
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(100,116,139,0.12)';
+    ctx.lineWidth = 1;
+    for (let v = 0; v <= 1; v += 0.25) {
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y(v));
+      ctx.lineTo(W - pad.right, y(v));
+      ctx.stroke();
+    }
+
+    // Threshold line
+    ctx.strokeStyle = 'rgba(239,68,68,0.5)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y(threshold));
+    ctx.lineTo(W - pad.right, y(threshold));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Threshold label
+    ctx.fillStyle = '#f87171';
+    ctx.font = '13px Segoe UI';
+    ctx.textAlign = 'right';
+    ctx.fillText('threshold: 15%', W - pad.right - 4, y(threshold) - 8);
+
+    // Area fill under curve
+    const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
+    gradient.addColorStop(0, 'rgba(139,92,246,0.25)');
+    gradient.addColorStop(1, 'rgba(139,92,246,0.0)');
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(0));
+    for (let i = 0; i < tools.length; i++) {
+      ctx.lineTo(x(i), y(tools[i].gain));
+    }
+    ctx.lineTo(x(tools.length - 1), y(0));
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(tools[0].gain));
+    for (let i = 1; i < tools.length; i++) {
+      ctx.lineTo(x(i), y(tools[i].gain));
+    }
+    ctx.strokeStyle = '#a78bfa';
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // Dots and labels
+    tools.forEach((t, i) => {
+      const cx = x(i);
+      const cy = y(t.gain);
+
+      // Dot glow
+      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 20);
+      const belowThreshold = t.gain < threshold;
+      if (belowThreshold) {
+        glow.addColorStop(0, 'rgba(236,72,153,0.4)');
+        glow.addColorStop(1, 'transparent');
+      } else {
+        glow.addColorStop(0, 'rgba(139,92,246,0.3)');
+        glow.addColorStop(1, 'transparent');
+      }
+      ctx.beginPath();
+      ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+      ctx.fillStyle = glow;
+      ctx.fill();
+
+      // Dot
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.fillStyle = belowThreshold ? '#ec4899' : '#a78bfa';
+      ctx.fill();
+      ctx.strokeStyle = '#0f0f1a';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Gain value
+      ctx.fillStyle = belowThreshold ? '#f472b6' : '#c4b5fd';
+      ctx.font = 'bold 16px Segoe UI';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.round(t.gain * 100) + '%', cx, cy - 18);
+
+      // Tool name
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '12px Segoe UI';
+      const lines = t.name.split('\n');
+      lines.forEach((line, li) => {
+        ctx.fillText(line, cx, pad.top + plotH + 22 + li * 16);
+      });
+    });
+
+    // Convergence marker
+    const convX = x(3);
+    const convY = y(tools[3].gain);
+    ctx.fillStyle = 'rgba(236,72,153,0.12)';
+    ctx.fillRect(convX - 2, pad.top, W - pad.right - convX + 2, plotH);
+
+    ctx.fillStyle = '#ec4899';
+    ctx.font = 'bold 14px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚡ CONVERGENCE', (convX + x(4)) / 2, pad.top + 22);
+    ctx.font = '12px Segoe UI';
+    ctx.fillStyle = '#f9a8d4';
+    ctx.fillText('"Synthesize now"', (convX + x(4)) / 2, pad.top + 42);
+
+    // Y-axis labels
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px Segoe UI';
+    ctx.textAlign = 'right';
+    for (let v = 0; v <= 1; v += 0.25) {
+      ctx.fillText(Math.round(v * 100) + '%', pad.left - 10, y(v) + 4);
+    }
+
+    // Axis labels
+    ctx.fillStyle = '#64748b';
+    ctx.font = '13px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText('Tool Calls →', pad.left + plotW / 2, H - 2);
+    
+    ctx.save();
+    ctx.translate(14, pad.top + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('Information Gain', 0, 0);
+    ctx.restore();
+  </script>
+</body>
+</html>

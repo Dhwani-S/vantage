@@ -5,9 +5,9 @@ from logger import log
 class InformationGainTracker:
     """Tracks information gain across tool calls using n-gram overlap."""
 
-    GAIN_THRESHOLD = 0.15        # below this = low gain
-    CONSECUTIVE_LOW_LIMIT = 2    # converge after N consecutive low-gain calls
-    SHINGLE_SIZE = 3             # word-level n-gram size
+    GAIN_THRESHOLD = 0.15
+    CONSECUTIVE_LOW_LIMIT = 2
+    SHINGLE_SIZE = 3
 
     def __init__(self):
         self._seen_shingles: set[tuple] = set()

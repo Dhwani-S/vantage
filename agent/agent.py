@@ -48,7 +48,6 @@ def parse_response(response_text: str) -> AgentResponse:
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```.*\n|```$", "", cleaned, flags=re.DOTALL).strip()
 
-    # Try full text as JSON first
     try:
         parsed = json.loads(cleaned)
         if isinstance(parsed, dict) and "tool" in parsed:
@@ -62,8 +61,6 @@ def parse_response(response_text: str) -> AgentResponse:
     except (json.JSONDecodeError, KeyError):
         pass
 
-    # LLM sometimes emits a JSON tool call followed by extra text.
-    # Try to extract a JSON object from the beginning of the response.
     if cleaned.startswith("{"):
         brace_depth = 0
         end = -1
@@ -96,7 +93,7 @@ def parse_response(response_text: str) -> AgentResponse:
 def call_llm(prompt: str, client: genai.Client, config: dict, max_retries: int = 3) -> AgentResponse:
     for attempt in range(max_retries):
         try:
-            wait = config["THROTTLE_RATE"] * (2 ** attempt)  # Exponential backoff
+            wait = config["THROTTLE_RATE"] * (2 ** attempt)
             if attempt > 0:
                 log("INFO", f"Retry {attempt + 1}/{max_retries}: Waiting {wait}s...")
             time.sleep(wait)
@@ -148,7 +145,6 @@ def agent_loop(user_input: str, client: genai.Client, tools: list[ToolDefinition
             conversation.add("agent", json.dumps({"tool": tool_def.name, "arguments": response.tool_call.arguments}))
             conversation.add("tool_result", result)
 
-            # ── Convergence check ──
             tracker.measure(tool_def.name, result)
             if tracker.converged:
                 log("INFO", f"Convergence detected — nudging model to synthesize. Gains: {tracker.summary['gains']}")
@@ -198,7 +194,6 @@ def agent_loop_stream(user_input: str, client: genai.Client, tools: list[ToolDef
             conversation.add("agent", json.dumps({"tool": tool_def.name, "arguments": response.tool_call.arguments}))
             conversation.add("tool_result", result)
 
-            # ── Convergence check ──
             gain = tracker.measure(tool_def.name, result)
             yield {"type": "info_gain", "tool": tool_def.name, "gain": round(gain, 3),
                    "converged": tracker.converged, "summary": tracker.summary}

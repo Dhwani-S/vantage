@@ -15,9 +15,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from convergence import InformationGainTracker
 
-# ─────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────
 DIVIDER = "=" * 72
 
 def header(title):
@@ -35,9 +32,6 @@ def table(rows, headers):
         print(fmt.format(*[str(c) for c in r]))
 
 
-# ═════════════════════════════════════════════════════════
-# EXPERIMENT 1 — Diverse vs Redundant (Synthetic)
-# ═════════════════════════════════════════════════════════
 def experiment_1():
     header("EXPERIMENT 1: Three Tiers — Diverse vs Paraphrased vs Truly Redundant")
 
@@ -97,9 +91,6 @@ def experiment_1():
     return results
 
 
-# ═════════════════════════════════════════════════════════
-# EXPERIMENT 2 — Convergence Timing Sweep
-# ═════════════════════════════════════════════════════════
 def experiment_2():
     header("EXPERIMENT 2: Convergence Timing — When Does It Fire?")
 
@@ -138,23 +129,19 @@ def experiment_2():
     print("    Injecting truly novel data resets the counter — but re-using already-seen")
     print("    text counts as low gain, so D) alternating converges after re-visiting.")
     all_correct = all(
-        (r[0].startswith("A") and r[3] == "YES") or   # identical → converge
-        (r[0].startswith("E") and r[3] == "NO")        # all unique → no converge
+        (r[0].startswith("A") and r[3] == "YES") or
+        (r[0].startswith("E") and r[3] == "NO")
         for r in rows if r[0].startswith("A") or r[0].startswith("E")
     )
     print(f"  ▸ VERDICT: {'PASS ✓' if all_correct else 'FAIL ✗'} (A=converge, E=no converge)")
 
 
-# ═════════════════════════════════════════════════════════
-# EXPERIMENT 3 — Live API Data Collection
-# ═════════════════════════════════════════════════════════
 def experiment_3():
     header("EXPERIMENT 3: Live API Data — Real Tool Calls")
     print("  Calling real APIs to collect actual data and measure gain...\n")
 
     from tools import tool_registry
 
-    # Two test cases: a focused query (should converge) and a broad one (shouldn't)
     test_cases = [
         {
             "label": "A) Focused — same topic across all tools",
@@ -195,7 +182,7 @@ def experiment_3():
                              "LOW" if gain < 0.15 else "OK", len(result)))
             except Exception as e:
                 rows.append((tool_name, list(args.values())[0], "ERR", str(e)[:30], 0))
-            time.sleep(0.5)  # be polite to APIs
+            time.sleep(0.5)
 
         table(rows, ("Tool", "Query", "Gain", "Status", "Chars"))
         print(f"  Converged: {tracker.converged}  |  Gains: {tracker.summary['gains']}")
@@ -206,9 +193,6 @@ def experiment_3():
     print("    True convergence requires semantically redundant content.")
 
 
-# ═════════════════════════════════════════════════════════
-# EXPERIMENT 4 — Threshold Sensitivity Analysis
-# ═════════════════════════════════════════════════════════
 def experiment_4():
     header("EXPERIMENT 4: Threshold Sensitivity — What If We Change the Cutoff?")
 
@@ -236,20 +220,15 @@ def experiment_4():
     print("    0.15 is the sweet spot — catches true redundancy without false positives.")
 
 
-# ═════════════════════════════════════════════════════════
-# Main
-# ═════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("\n" + "#" * 72)
     print("  INFORMATION GAIN TRACKING — EXPERIMENTAL VALIDATION")
     print("#" * 72)
 
-    # Run synthetic experiments (always)
     experiment_1()
     experiment_2()
     experiment_4()
 
-    # Run live API experiment (opt-in)
     if "--live" in sys.argv:
         experiment_3()
     else:

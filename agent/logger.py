@@ -2,7 +2,6 @@ import json
 import time
 import os
 
-# File-based logging: write to agent/logs/
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, f"agent_{time.strftime('%Y%m%d_%H%M%S')}.log")
@@ -26,7 +25,6 @@ def log(label: str, message: str = "", data: dict = None):
         print(text)
         _write_log(text)
 
-    # If message looks like JSON, pretty-print it
     if isinstance(message, str):
         stripped = message.strip()
         if stripped.startswith(("{", "[")):
@@ -36,7 +34,6 @@ def log(label: str, message: str = "", data: dict = None):
             except (json.JSONDecodeError, ValueError):
                 pass
 
-    # Visual separators for key moments
     if label == "USER":
         out(f"\n{'='*60}")
         out(f"  [{timestamp}] USER QUERY")
@@ -60,7 +57,6 @@ def log(label: str, message: str = "", data: dict = None):
         return
     elif label == "TOOL_RESULT":
         output = (data or {}).get("output", "")
-        # Full output goes to file, truncated to terminal
         _write_log(f"  [{timestamp}] TOOL << {message}")
         _write_log(output)
         _write_log("")

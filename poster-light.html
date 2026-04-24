@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Information Gain Tracking — Vantage (Light)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1920px;
+    height: 1080px;
+    background: #ffffff;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #111827;
+    overflow: hidden;
+  }
+
+  .page {
+    width: 1920px;
+    height: 1080px;
+    padding: 56px 72px 44px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  .header { margin-bottom: 32px; flex-shrink: 0; }
+  .header h1 {
+    font-size: 46px;
+    font-weight: 900;
+    color: #0a0a0a;
+    line-height: 1.15;
+  }
+  .header h1 .accent {
+    color: #6d28d9;
+  }
+  .header .sub {
+    font-size: 18px;
+    color: #4b5563;
+    margin-top: 6px;
+    font-weight: 500;
+  }
+  .header .sub b { color: #6d28d9; font-weight: 800; }
+
+  /* ── Main ── */
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 55% 45%;
+    gap: 44px;
+    min-height: 0;
+  }
+
+  .left { display: flex; flex-direction: column; gap: 22px; }
+
+  .section-label {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 2.5px;
+    color: #6d28d9;
+    font-weight: 800;
+  }
+
+  /* Chart */
+  .chart-wrap {
+    flex: 1;
+    background: #fafafa;
+    border: 2px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 22px 28px 18px;
+    display: flex;
+    flex-direction: column;
+  }
+  .chart-wrap .section-label { margin-bottom: 12px; }
+  .chart-container { flex: 1; position: relative; }
+  .chart-container canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+  /* Analogy */
+  .analogy-row { display: flex; gap: 16px; flex-shrink: 0; }
+  .analogy-box {
+    flex: 1;
+    background: #fafafa;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 16px 20px;
+    text-align: center;
+  }
+  .analogy-box .domain {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 2px;
+    color: #6b7280; margin-bottom: 6px; font-weight: 800;
+  }
+  .analogy-box .eq {
+    font-size: 20px; font-family: 'Cambria Math', Georgia, serif;
+    color: #111827; font-weight: 600;
+  }
+  .analogy-box .eq .hl { color: #6d28d9; font-weight: 700; }
+  .analogy-arrow { display: flex; align-items: center; font-size: 24px; color: #9ca3af; font-weight: 900; }
+
+  /* Right */
+  .right { display: flex; flex-direction: column; gap: 22px; }
+
+  .card {
+    background: #fafafa;
+    border: 2px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 24px 28px;
+  }
+  .card .section-label { margin-bottom: 14px; }
+
+  /* Formula */
+  .formula {
+    font-size: 28px;
+    font-family: 'Cambria Math', Georgia, serif;
+    color: #111827;
+    text-align: center;
+    padding: 6px 0;
+    line-height: 1.6;
+    font-weight: 600;
+  }
+  .formula .frac {
+    display: inline-flex; flex-direction: column; align-items: center;
+    vertical-align: middle; margin: 0 4px;
+  }
+  .formula .frac .num { border-bottom: 2.5px solid #9ca3af; padding-bottom: 3px; }
+  .formula .frac .den { padding-top: 3px; }
+  .formula .hl { color: #6d28d9; font-weight: 700; }
+  .formula-note {
+    text-align: center; color: #4b5563; font-size: 14px;
+    margin-top: 10px; font-weight: 600;
+  }
+
+  /* Layers */
+  .layers { display: flex; gap: 12px; }
+  .layer { flex: 1; border-radius: 12px; padding: 16px 14px; text-align: center; }
+  .layer .num { font-size: 32px; font-weight: 900; margin-bottom: 4px; }
+  .layer .name { font-size: 14px; font-weight: 800; color: #111827; margin-bottom: 2px; }
+  .layer .desc { font-size: 12px; color: #4b5563; font-weight: 500; }
+  .l1 { background: #ede9fe; border: 2px solid #a78bfa; }
+  .l1 .num { color: #5b21b6; }
+  .l2 { background: #fce7f3; border: 2px solid #f472b6; }
+  .l2 .num { color: #be185d; }
+  .l3 { background: #fee2e2; border: 2px solid #f87171; }
+  .l3 .num { color: #b91c1c; }
+
+  /* Steps */
+  .steps { display: flex; gap: 12px; align-items: flex-start; }
+  .step { flex: 1; text-align: center; }
+  .step .icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 20px; margin-bottom: 8px; font-weight: 700;
+  }
+  .step .icon.purple { background: #ddd6fe; color: #5b21b6; }
+  .step .icon.blue { background: #bfdbfe; color: #1d4ed8; }
+  .step .icon.pink { background: #fbcfe8; color: #be185d; }
+  .step .stitle { font-size: 14px; font-weight: 800; color: #111827; margin-bottom: 2px; }
+  .step .sdesc { font-size: 12px; color: #4b5563; line-height: 1.4; font-weight: 500; }
+  .step-arrow { display: flex; align-items: center; color: #9ca3af; font-size: 20px; padding-top: 10px; font-weight: 900; }
+
+  /* ── Footer ── */
+  .footer {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 16px;
+    border-top: 2px solid #e5e7eb;
+    margin-top: 16px;
+  }
+  .footer .left-f { font-size: 14px; color: #4b5563; font-weight: 500; }
+  .footer .left-f strong { color: #111827; font-weight: 800; }
+  .footer .left-f a { color: #6d28d9; text-decoration: none; font-weight: 700; }
+  .footer .tags { display: flex; gap: 10px; }
+  .footer .tag {
+    background: #ede9fe; border: 2px solid #a78bfa; border-radius: 16px;
+    padding: 4px 14px; color: #5b21b6; font-size: 12px; font-weight: 800;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <h1><span class="accent">Early Stopping for Agents</span> — Information Gain Tracking in Agentic Loops</h1>
+    <div class="sub">Built from scratch for <b>TSAI EAGV3</b> · no LangChain, no frameworks, just Python</div>
+  </div>
+
+  <div class="main">
+    <div class="left">
+      <div class="chart-wrap">
+        <div class="section-label">Information Gain per Tool Call</div>
+        <div class="chart-container">
+          <canvas id="chart"></canvas>
+        </div>
+      </div>
+
+      <div class="analogy-row">
+        <div class="analogy-box">
+          <div class="domain">SGD / Training</div>
+          <div class="eq"><span class="hl">∇L ≈ 0</span> → stop training</div>
+        </div>
+        <div class="analogy-arrow">≡</div>
+        <div class="analogy-box">
+          <div class="domain">Agents / Inference</div>
+          <div class="eq"><span class="hl">ΔInfo ≈ 0</span> → stop researching</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="card">
+        <div class="section-label">Core Formula</div>
+        <div class="formula">
+          gain<sub>t</sub> &nbsp;=
+          <span class="frac">
+            <span class="num">| <span class="hl">shingles<sub>t</sub></span> &nbsp;\&nbsp; ∪<sub>i&lt;t</sub> shingles<sub>i</sub> |</span>
+            <span class="den">| <span class="hl">shingles<sub>t</sub></span> |</span>
+          </span>
+        </div>
+        <div class="formula-note">Novelty ratio — fraction of genuinely new n-grams per tool call</div>
+      </div>
+
+      <div class="card">
+        <div class="section-label">3-Layer Stopping Architecture</div>
+        <div class="layers">
+          <div class="layer l1"><div class="num">1</div><div class="name">LLM Opts Out</div><div class="desc">Model outputs final answer</div></div>
+          <div class="layer l2"><div class="num">2</div><div class="name">Info Gain</div><div class="desc">Convergence detection</div></div>
+          <div class="layer l3"><div class="num">3</div><div class="name">Hard Cap</div><div class="desc">range(5) safety net</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-label">How It Works</div>
+        <div class="steps">
+          <div class="step">
+            <div class="icon purple">✂</div>
+            <div class="stitle">Shingle</div>
+            <div class="sdesc">Tokenize into 3-word n-grams</div>
+          </div>
+          <div class="step-arrow">→</div>
+          <div class="step">
+            <div class="icon blue">Δ</div>
+            <div class="stitle">Compare</div>
+            <div class="sdesc">Set diff vs all prior results</div>
+          </div>
+          <div class="step-arrow">→</div>
+          <div class="step">
+            <div class="icon pink">⚡</div>
+            <div class="stitle">Decide</div>
+            <div class="sdesc">gain &lt; 15% twice → synthesize</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="left-f">
+      <strong>Vantage</strong> — Deep Research Chrome Extension &nbsp;·&nbsp;
+      <a href="https://github.com/Dhwani-S/vantage">github.com/Dhwani-S/vantage</a>
+    </div>
+    <div class="tags">
+      <span class="tag">TSAI EAGV3</span>
+      <span class="tag">60 lines · 0 ML deps</span>
+      <span class="tag">n-gram shingling</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const canvas = document.getElementById('chart');
+  const container = canvas.parentElement;
+  const dpr = 2;
+  canvas.width = container.offsetWidth * dpr;
+  canvas.height = container.offsetHeight * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = container.offsetWidth;
+  const H = container.offsetHeight;
+
+  const pad = { top: 20, right: 28, bottom: 48, left: 48 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  const tools = [
+    { name: 'Wikipedia\n(Redis)', gain: 1.0 },
+    { name: 'Wikipedia\n(Memcached)', gain: 0.87 },
+    { name: 'Hacker News', gain: 0.52 },
+    { name: 'GitHub', gain: 0.11 },
+    { name: 'OpenAlex', gain: 0.08 },
+  ];
+  const threshold = 0.15;
+
+  function xp(i) { return pad.left + (i / (tools.length - 1)) * plotW; }
+  function yp(v) { return pad.top + (1 - v) * plotH; }
+
+  // Grid
+  ctx.strokeStyle = '#e5e7eb';
+  ctx.lineWidth = 1;
+  for (let v = 0; v <= 1; v += 0.25) {
+    ctx.beginPath(); ctx.moveTo(pad.left, yp(v)); ctx.lineTo(W - pad.right, yp(v)); ctx.stroke();
+  }
+
+  // Convergence zone
+  const cX = xp(3);
+  ctx.fillStyle = 'rgba(190,24,93,0.06)';
+  ctx.fillRect(cX - 3, pad.top, W - pad.right - cX + 3, plotH);
+
+  // Threshold
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(pad.left, yp(threshold)); ctx.lineTo(W - pad.right, yp(threshold)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#dc2626';
+  ctx.font = 'bold 12px Segoe UI';
+  ctx.textAlign = 'right';
+  ctx.fillText('threshold 15%', W - pad.right, yp(threshold) - 7);
+
+  // Area
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
+  grad.addColorStop(0, 'rgba(109,40,217,0.15)');
+  grad.addColorStop(1, 'rgba(109,40,217,0.0)');
+  ctx.beginPath();
+  ctx.moveTo(xp(0), yp(0));
+  tools.forEach((t, i) => ctx.lineTo(xp(i), yp(t.gain)));
+  ctx.lineTo(xp(tools.length - 1), yp(0));
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  tools.forEach((t, i) => { i === 0 ? ctx.moveTo(xp(i), yp(t.gain)) : ctx.lineTo(xp(i), yp(t.gain)); });
+  ctx.strokeStyle = '#6d28d9';
+  ctx.lineWidth = 3.5;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  // Dots
+  tools.forEach((t, i) => {
+    const cx = xp(i), cy = yp(t.gain);
+    const low = t.gain < threshold;
+
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fillStyle = low ? '#be185d' : '#6d28d9';
+    ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke();
+
+    ctx.fillStyle = low ? '#be185d' : '#5b21b6';
+    ctx.font = 'bold 15px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(t.gain * 100) + '%', cx, cy - 14);
+
+    ctx.fillStyle = '#374151';
+    ctx.font = 'bold 12px Segoe UI';
+    t.name.split('\n').forEach((line, li) => {
+      ctx.fillText(line, cx, pad.top + plotH + 18 + li * 15);
+    });
+  });
+
+  // Convergence label
+  ctx.fillStyle = '#be185d';
+  ctx.font = 'bold 14px Segoe UI';
+  ctx.textAlign = 'center';
+  ctx.fillText('⚡ CONVERGENCE', (cX + xp(4)) / 2, pad.top + 16);
+
+  // Y-axis
+  ctx.fillStyle = '#6b7280';
+  ctx.font = 'bold 12px Segoe UI';
+  ctx.textAlign = 'right';
+  for (let v = 0; v <= 1; v += 0.25) {
+    ctx.fillText(Math.round(v * 100) + '%', pad.left - 8, yp(v) + 4);
+  }
+</script>
+</body>
+</html>
