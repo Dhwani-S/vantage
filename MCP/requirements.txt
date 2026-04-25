@@ -1,0 +1,4 @@
+mcp[cli]
+pillow 
+requests 
+pyautogui
