@@ -51,6 +51,8 @@ SANDBOX.mkdir(exist_ok=True)
 def _safe_path(relative: str) -> Path:
     """Resolve `relative` inside SANDBOX and refuse anything that escapes."""
     p = (SANDBOX / relative).resolve()
+    print("p:" ,p)
+    print("SANDBOX.resolve():" ,SANDBOX.resolve())
     if SANDBOX.resolve() not in p.parents and p != SANDBOX.resolve():
         raise ValueError(f"Path '{relative}' escapes the sandbox")
     return p
